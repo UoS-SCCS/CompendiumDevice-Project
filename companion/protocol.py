@@ -526,7 +526,9 @@ class ProtoWSSInitKeyRespEncMsg(SignatureMessage):
 
     def get_sender_public_key_id(self)->str:
         return self._data[PROTO_WSS_INIT_KEY_RESP_ENC_MSG.HASH_CD_PUBLIC_KEY.value]
-        
+    
+    def get_ephe_remote_addr(self)->str:
+        return self._data[PROTO_WSS_INIT_KEY_RESP_ENC_MSG.ADR_CD.value]
     @staticmethod
     def create_msg_data(adr_cd):
         data = {}

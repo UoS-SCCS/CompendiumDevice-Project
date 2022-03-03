@@ -237,7 +237,7 @@ if __name__ == "__main__":
 
     pc = PC()
     cd = Companion()
-    pc.start_enrolment()
+    pc.start_wss()
     
     #test_enrolment()
     #test_wss()
