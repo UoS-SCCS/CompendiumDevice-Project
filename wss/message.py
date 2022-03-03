@@ -48,6 +48,9 @@ class Message(dict):
         return json.dumps(self)
     def encode_as_bytes(self)->bytes:
         return json.dumps(self).encode('utf-8')
+    
+    def get_field_value(self,field)->str:
+        return self[field]
     def _validate(self):
         for field in MSG:
             if(field.value not in self):

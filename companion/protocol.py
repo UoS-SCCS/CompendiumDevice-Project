@@ -324,6 +324,9 @@ class Protocol(ABC):
         self.current_state = self.states.EMPTY
         self.protocol_messages=[ProtoEmpty]
   
+    def get_next_message_class(self):
+        return self.protocol_messages[self.current_state.value+1]
+
     def _increment_state(self):
         self.current_state = self.states(self.current_state.value+1)
     def prepare_outgoing_msg(self, data:dict)->ProtocolMessage:
@@ -339,8 +342,11 @@ class Protocol(ABC):
         protologger.debug("Outgoing: %s",next_msg.get_string())
         return next_msg
 
-    def parse_incoming_msg(self, msg:str)->ProtocolMessage:
-        data = json.loads(msg)
+    def parse_incoming_msg(self, msg)->ProtocolMessage:
+        if isinstance(msg,dict):
+            data = msg
+        else:
+            data = json.loads(msg)
 
         if len(self.protocol_messages)>self.current_state.value+1:
             protocol_message = self.protocol_messages[self.current_state.value+1].parse(data)
@@ -426,6 +432,9 @@ class ProtoMsgInitKeyReq(SignatureMessage,STSDHECKeyExchangeMessage ):
     def get_sender_public_key_id(self):
         return IdentityStore.calculate_public_key_identifier(self.get_public_identity())
 
+    def get_ephe_remote_addr(self)->str:
+        return self._data[PROTO_ENROL_INIT_KEY_REQ.ADR_PC.value]
+
     def get_public_identity(self):
         return self._data[PROTO_ENROL_INIT_KEY_REQ.PC_PUBLIC_KEY.value]
     @staticmethod
@@ -450,7 +459,8 @@ class ProtoMsgInitKeyRespEncMsg(SignatureMessage):
         self.state = ENROL_KEP_STATE.EMPTY
         self._data = data
 
-    
+    def get_ephe_remote_addr(self)->str:
+        return self._data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.ADR_CD.value]
     def get_name(self):
         return self._data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.ID_CD.value]
     
@@ -496,6 +506,9 @@ class ProtoWSSInitKeyReqMsg(SignatureMessage,STSDHECKeyExchangeMessage ):
         data[PROTO_WSS_INIT_KEY_REQ.SIGNATURE_PC.value]=""
         return data
 
+    def get_ephe_remote_addr(self)->str:
+        return self._data[PROTO_WSS_INIT_KEY_REQ.ADR_PC.value]
+    
     def get_sender_public_key_id(self)->str:
         return self._data[PROTO_WSS_INIT_KEY_REQ.HASH_PC_PUBLIC_KEY.value]
 
@@ -596,8 +609,10 @@ class EnrolmentProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
         self.my_name = self.identity_store.get_id()
         self.their_name = None
         self.their_public_key = None
-
+        self.ephe_address_remote = None
     
+
+
     def process_outgoing_message(self, message:ProtocolMessage):
         if isinstance(message,ProtoMsgInitKeyReq):
             self.generate_secret()
@@ -625,10 +640,12 @@ class EnrolmentProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
             self.generate_secret()
             self.receive_their_public_key(message.get_ephe_public_key())
             self.their_name = message.get_name()
+            self.ephe_address_remote = message.get_ephe_remote_addr()
             self.identity_store.set_public_identity(message.get_name(),message.get_public_identity())
         if isinstance(message,ProtoMsgInitKeyResp):
             self.receive_their_public_key(message.get_ephe_public_key())
             init_key_resp = ProtoMsgInitKeyRespEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
+            self.ephe_address_remote = init_key_resp.get_ephe_remote_addr()
             self.identity_store.set_public_identity(init_key_resp.get_name(),init_key_resp.get_public_identity())
             self.their_public_key = serialization.load_pem_public_key(init_key_resp.get_public_identity().encode("UTF-8"))
             self.their_name = init_key_resp.get_name()
@@ -653,7 +670,10 @@ class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
         self.my_id = self.identity_store.get_public_key_id()
         self.my_name = self.identity_store.get_id()
         self.their_id = None
+        self.ephe_address_remote = None
     
+    
+
     def process_outgoing_message(self, message:ProtocolMessage):
         if isinstance(message,ProtoWSSInitKeyReqMsg):
             self.generate_secret()
@@ -678,9 +698,11 @@ class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
             self.generate_secret()
             self.receive_their_public_key(message.get_ephe_public_key())
             self.their_id = message.get_sender_public_key_id()
+            self.ephe_address_remote = message.get_ephe_remote_addr()
         if isinstance(message,ProtoMsgInitKeyResp):
             self.receive_their_public_key(message.get_ephe_public_key())
             init_key_resp = ProtoWSSInitKeyRespEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
+            self.ephe_address_remote = init_key_resp.get_ephe_remote_addr()
             self.their_id = init_key_resp.get_sender_public_key_id()
             temp_key = self.identity_store.get_public_identity_from_key_id(self.their_id)
             if not init_key_resp.verify_signature(temp_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_my_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_their_ephe_public_key_string()}):
