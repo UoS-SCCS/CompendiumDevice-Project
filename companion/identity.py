@@ -4,6 +4,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey,EllipticCurvePrivateKey
 from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding, PrivateFormat, NoEncryption
 from cryptography.hazmat.primitives import serialization 
+from cryptography.hazmat.primitives import hashes
 from companion.ui import UI
 from multiprocessing import Process, Queue
 import socket
@@ -11,6 +12,8 @@ import socket
 import keyring
 
 SERVICE_NAME="COMPENDIUM"
+PUBLIC_KEY_STORE="_PUBKEYS"
+IDX_STORE="_INDEX"
 IDENTITY_KEY_PUBLIC="identity-public-key"
 IDENTITY_KEY_PRIVATE="identity-private-key"
 IDENTITY="identity-name"
@@ -21,6 +24,8 @@ class IdentityStore(ABC):
         self.public_key = None
         self.id = None
         self.SERVICE_NAME = SERVICE_NAME
+        self.SERVICE_NAME_PUBLIC_KEYS = self.SERVICE_NAME + PUBLIC_KEY_STORE
+        self.SERVICE_NAME_IDX = self.SERVICE_NAME + IDX_STORE
         self.load()
 
     def get_private_key(self)->EllipticCurvePrivateKey:
@@ -29,21 +34,43 @@ class IdentityStore(ABC):
     def get_public_key(self)->EllipticCurvePublicKey:
         return self.public_key
 
+    def get_public_key_id(self)->str:
+        return IdentityStore.calculate_public_key_identifier(self.public_key)
+
     def get_id(self)->str:
         return self.id
     
     @abstractmethod
-    def get_public_identity(self, name:str)->EllipticCurvePublicKey:
+    def get_public_identity_from_name(self, name:str)->EllipticCurvePublicKey:
         pass
 
+    @abstractmethod        
+    def get_public_identity_from_key_id(self, key_id:str)->EllipticCurvePublicKey:
+        pass
+
+    @abstractmethod    
+    def get_public_identity_str_from_name(self, name:str)->str:
+        pass
+            
     @abstractmethod
-    def get_public_identity_str(self, name:str)->str:
+    def get_public_identity_str_from_key_id(self, key_id:str)->str:
         pass
 
     @abstractmethod
     def set_public_identity(self, name:str, key:str)->str:
         pass
     
+    @staticmethod
+    def calculate_public_key_identifier(key)->str:
+        if not isinstance(key,EllipticCurvePublicKey):
+            temp_key = serialization.load_pem_public_key(key.encode("UTF-8"))
+        else:
+            temp_key = key
+        temp_bytes = temp_key.public_bytes(Encoding.DER,PublicFormat.SubjectPublicKeyInfo)
+        hasher = hashes.Hash(hashes.SHA256())
+        hasher.update(temp_bytes)
+        return hasher.finalize().hex()
+
     def get_identity_name(self):
         q = Queue()
         p = Process(target=UI.get_user_input, args=(q,))
@@ -81,6 +108,8 @@ class KeyRingIdentityStore(IdentityStore):
         super().__init__()
         if service_name is not None:
             self.SERVICE_NAME = service_name
+            self.SERVICE_NAME_PUBLIC_KEYS = self.SERVICE_NAME + PUBLIC_KEY_STORE
+            self.SERVICE_NAME_IDX = self.SERVICE_NAME + IDX_STORE
         self._check_initialised()
     
     def _check_initialised(self):
@@ -105,14 +134,22 @@ class KeyRingIdentityStore(IdentityStore):
         else:
             self.load_public_key(keyring.get_password(self.SERVICE_NAME,IDENTITY_KEY_PUBLIC))
             
-    def get_public_identity(self, name:str)->EllipticCurvePublicKey:
-        return serialization.load_pem_public_key(keyring.get_password(self.SERVICE_NAME,name).encode("UTF-8"))
+    def get_public_identity_from_name(self, name:str)->EllipticCurvePublicKey:
+        return self.get_public_identity_from_key_id(keyring.get_password(self.SERVICE_NAME_IDX,name))
+        
+    def get_public_identity_from_key_id(self, key_id:str)->EllipticCurvePublicKey:
+        return serialization.load_pem_public_key(keyring.get_password(self.SERVICE_NAME_PUBLIC_KEYS,key_id).encode("UTF-8"))
     
-    def get_public_identity_str(self, name:str)->str:
-        return keyring.get_password(self.SERVICE_NAME,name)
+    def get_public_identity_str_from_name(self, name:str)->str:
+        return self.get_public_identity_str_from_key_id(keyring.get_password(self.SERVICE_NAME_IDX,name))
+    
+    def get_public_identity_str_from_key_id(self, key_id:str)->str:
+        return keyring.get_password(self.SERVICE_NAME_PUBLIC_KEYS,key_id)
 
     def set_public_identity(self, name:str, key:str)->str:
-        keyring.set_password(self.SERVICE_NAME,name,key)
+        pub_key_id = IdentityStore.calculate_public_key_identifier(key)
+        keyring.set_password(self.SERVICE_NAME_PUBLIC_KEYS,pub_key_id,key)
+        keyring.set_password(self.SERVICE_NAME_IDX,name,pub_key_id)
 
     def store(self,**kwargs):
         keyring.set_password(self.SERVICE_NAME,IDENTITY,self.id)

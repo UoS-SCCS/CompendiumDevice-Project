@@ -28,6 +28,11 @@ logger.setLevel(logging.DEBUG)
 streamHandler = logging.StreamHandler(sys.stdout)
 logger.addHandler(streamHandler)
 
+protologger = logging.getLogger("protocol-messages")
+protologger.setLevel(logging.DEBUG)
+protologger.addHandler(streamHandler)
+
+
 class B64():
     @staticmethod
     def encode(data:bytes)->str:
@@ -56,41 +61,77 @@ class STATE(Enum):
 class EMPTY_STATE(STATE,Enum):
     EMPTY = 0
 
-class KEP_STATE(STATE,Enum):
+class FIELDS(Enum):
+    pass
+
+#*************************************************************************
+# Enrol Protocol
+#*************************************************************************
+class ENROL_KEP_STATE(STATE,Enum):
     EMPTY = 0
     INIT_KEY_REQ = 1
     INIT_KEY_RESP = 2
     KEY_CONFIRM_REQ = 3
-    KEY_CONFIRM_RESP = 4
 
-class FIELDS(Enum):
-    pass
-
-class PROTO_INIT_KEY_REQ(FIELDS):
+class PROTO_ENROL_INIT_KEY_REQ(FIELDS):
     ADR_PC = "adr_pc"
     PC_PUBLIC_KEY = "pc_public_key"
     ID_PC = "id_pc"
     G_X = "g_to_x"
     SIGNATURE_PC = "signature_pc"
 
-class PROTO_INIT_KEY_RESP(FIELDS):
-    G_Y = "g_to_y"
-    ENC_MSG = "enc_msg" 
-
-class PROTO_INIT_KEY_RESP_SIG(FIELDS):
+class PROTO_ENROL_INIT_KEY_RESP_SIG(FIELDS):
     G_Y = "g_to_y"
     G_X = "g_to_x"
     ADR_CD = "adr_cd"
     ID_CD = "id_cd"
     CD_PUBLIC_KEY = "cd_public_key"
     
-    
-class PROTO_INIT_KEY_RESP_ENC_MSG(FIELDS):
+class PROTO_ENROL_INIT_KEY_RESP_ENC_MSG(FIELDS):
     ADR_CD = "adr_cd"
     ID_CD = "id_cd"
     CD_PUBLIC_KEY = "cd_public_key"
     SIGNATURE_CD = "signature_cd"
+
+#*************************************************************************
+# WSS Protocol
+#*************************************************************************
+class WSS_KEP_STATE(STATE,Enum):
+    EMPTY = 0
+    INIT_KEY_REQ = 1
+    INIT_KEY_RESP = 2
+    KEY_CONFIRM_REQ = 3
+
+class PROTO_WSS_INIT_KEY_REQ(FIELDS):
+    ADR_PC = "adr_pc"
+    HASH_PC_PUBLIC_KEY = "hash_pc_public_key"
+    G_X = "g_to_x"
+    SIGNATURE_PC = "signature_pc"
+
+class PROTO_WSS_INIT_KEY_REQ_SIG(FIELDS):
+    ID_CD = "id_cd"
+    ADR_PC = "adr_pc"
+    G_X = "g_to_x"
+
+class PROTO_WSS_INIT_KEY_RESP_SIG(FIELDS):
+    G_Y = "g_to_y"
+    G_X = "g_to_x"
+    ADR_CD = "adr_cd"
     
+class PROTO_WSS_INIT_KEY_RESP_ENC_MSG(FIELDS):
+    ADR_CD = "adr_cd"
+    HASH_CD_PUBLIC_KEY = "hash_cd_public_key"
+    SIGNATURE_CD = "signature_cd"
+
+#*************************************************************************
+# Common Key Confirm
+#*************************************************************************
+
+class PROTO_INIT_KEY_RESP(FIELDS):
+    G_Y = "g_to_y"
+    ENC_MSG = "enc_msg" 
+
+
 class PROTO_KEY_CONFIRM(FIELDS):
     ENC_SIG = "enc_sig_confirm"
 
@@ -100,7 +141,6 @@ class PROTO_KEY_CONFIRM_SIG(FIELDS):
     G_X = "g_to_x"
     G_Y = "g_to_y"
     
-
 class PROTO_ENC_MSG(FIELDS):
     IV = "iv"
     CIPHER_TEXT = "cipher_text"
@@ -203,7 +243,7 @@ class SignatureMessage(ProtocolMessage):
                     logger.debug("Found %s in self._data", field)
                     data_obj=self._data[field.value]
                 assert(data_obj is not None)
-                logger.debug("Adding %s to signature hash", field)
+                logger.debug("Adding %s to signature hash: %s", field, data_obj)
                 if isinstance(data_obj,dict):
                     hasher.update(json.dumps(data_obj).encode("UTF-8"))
                 elif isinstance(data_obj,str):
@@ -272,6 +312,7 @@ class AESGCMEncryptedMessage(ProtocolMessage):
     
     @staticmethod
     def create_encrypted_json_msg(data:dict, secret_key:bytes)->dict:
+        protologger.debug("Encrypting: %s",data)
         return AESGCMEncryptedMessage.parse(AESGCMEncryptedMessage.create_encrypted_json_msg_data(data,secret_key))
 #*************************************************************************
 # Abstract Protocol Classes
@@ -295,16 +336,19 @@ class Protocol(ABC):
             raise ProtocolException("Missing parameters for next message")
         self._increment_state()
         self.process_outgoing_message(next_msg)
+        protologger.debug("Outgoing: %s",next_msg.get_string())
         return next_msg
 
     def parse_incoming_msg(self, msg:str)->ProtocolMessage:
         data = json.loads(msg)
+
         if len(self.protocol_messages)>self.current_state.value+1:
             protocol_message = self.protocol_messages[self.current_state.value+1].parse(data)
             if protocol_message is None:
                 return None
             self._increment_state()
             self.process_incoming_message(protocol_message)
+            protologger.debug("Incoming: %s",protocol_message.get_string())
             return protocol_message
         return None
     
@@ -327,13 +371,13 @@ class STSDHKeyExchangeProtocol(Protocol):
         self.ephe_private = ec.generate_private_key(ec.SECP256R1())
         self.ephe_public = self.ephe_private.public_key()
 
-    def get_ephe_public_key_string(self):
+    def get_my_ephe_public_key_string(self):
         return self.ephe_public.public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo).decode("UTF-8")
 
-    def get_server_public_key_string(self):
+    def get_their_ephe_public_key_string(self):
         return self.server_public.public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo).decode("UTF-8")
 
-    def receive_server_public_key(self, server_public_key_pem:str):
+    def receive_their_public_key(self, server_public_key_pem:str):
         self.server_public = serialization.load_pem_public_key(server_public_key_pem.encode("UTF-8"))
         self.shared_key = self.ephe_private.exchange(ec.ECDH(), self.server_public)
         self.derived_key = HKDF(algorithm=hashes.SHA256(),
@@ -355,6 +399,7 @@ class STSDHKEwithAESGCMEncrypedMessageProtocol(STSDHKeyExchangeProtocol):
         return msg.decrypt_json(self.derived_key)
 
     def encrypt_json_message(self, msg:dict)->AESGCMEncryptedMessage:
+       
         return AESGCMEncryptedMessage.create_encrypted_json_msg(msg,self.derived_key)
 
 
@@ -364,61 +409,148 @@ class STSDHKEwithAESGCMEncrypedMessageProtocol(STSDHKeyExchangeProtocol):
 # Concrete Protocol Message Classes
 #*************************************************************************
 
+#*************************************************************************
+# Enrolment Protocol Message Classes
+#*************************************************************************
+
 class ProtoMsgInitKeyReq(SignatureMessage,STSDHECKeyExchangeMessage ):
     def __init__(self, data:dict):
         super().__init__(data)
-        self.fields = PROTO_INIT_KEY_REQ
+        self.fields = PROTO_ENROL_INIT_KEY_REQ
         self.signature_fields = self.fields
-        self.state = KEP_STATE.INIT_KEY_REQ
+        self.state = ENROL_KEP_STATE.INIT_KEY_REQ
         self._data = data
 
-    def get_id(self):
-        return self._data[PROTO_INIT_KEY_REQ.ID_PC.value]
+    def get_name(self):
+        return self._data[PROTO_ENROL_INIT_KEY_REQ.ID_PC.value]
+    def get_sender_public_key_id(self):
+        return IdentityStore.calculate_public_key_identifier(self.get_public_identity())
 
     def get_public_identity(self):
-        return self._data[PROTO_INIT_KEY_REQ.PC_PUBLIC_KEY.value]
+        return self._data[PROTO_ENROL_INIT_KEY_REQ.PC_PUBLIC_KEY.value]
     @staticmethod
     def create_msg_data(adp_pc):
         data = {}
-        data[PROTO_INIT_KEY_REQ.ADR_PC.value]=adp_pc
-        data[PROTO_INIT_KEY_REQ.ID_PC.value]=""
-        data[PROTO_INIT_KEY_REQ.PC_PUBLIC_KEY.value]=""
-        data[PROTO_INIT_KEY_REQ.G_X.value]=""
-        data[PROTO_INIT_KEY_REQ.SIGNATURE_PC.value]=""
+        data[PROTO_ENROL_INIT_KEY_REQ.ADR_PC.value]=adp_pc
+        data[PROTO_ENROL_INIT_KEY_REQ.ID_PC.value]=""
+        data[PROTO_ENROL_INIT_KEY_REQ.PC_PUBLIC_KEY.value]=""
+        data[PROTO_ENROL_INIT_KEY_REQ.G_X.value]=""
+        data[PROTO_ENROL_INIT_KEY_REQ.SIGNATURE_PC.value]=""
         return data
 
     def get_ephe_public_key(self)->str:
-        return self._data[PROTO_INIT_KEY_REQ.G_X.value]
+        return self._data[PROTO_ENROL_INIT_KEY_REQ.G_X.value]
 
 
 class ProtoMsgInitKeyRespEncMsg(SignatureMessage):
     def __init__(self, data:dict):
         super().__init__(data)
-        self.fields = PROTO_INIT_KEY_RESP_ENC_MSG
-        self.signature_fields = PROTO_INIT_KEY_RESP_SIG
-        self.state = KEP_STATE.EMPTY
+        self.fields = PROTO_ENROL_INIT_KEY_RESP_ENC_MSG
+        self.signature_fields = PROTO_ENROL_INIT_KEY_RESP_SIG
+        self.state = ENROL_KEP_STATE.EMPTY
         self._data = data
 
-    def get_id(self):
-        return self._data[PROTO_INIT_KEY_RESP_ENC_MSG.ID_CD.value]
+    
+    def get_name(self):
+        return self._data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.ID_CD.value]
+    
+    def get_sender_public_key_id(self):
+        return IdentityStore.calculate_public_key_identifier(self.get_public_identity())
+
 
     def get_public_identity(self)->str:
-        return self._data[PROTO_INIT_KEY_RESP_ENC_MSG.CD_PUBLIC_KEY.value]
+        return self._data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.CD_PUBLIC_KEY.value]
         
     @staticmethod
-    def create_msg_data(adp_cd):
+    def create_msg_data(adr_cd):
         data = {}
-        data[PROTO_INIT_KEY_RESP_ENC_MSG.ADR_CD.value]=adp_cd
-        data[PROTO_INIT_KEY_RESP_ENC_MSG.ID_CD.value]=""
-        data[PROTO_INIT_KEY_RESP_ENC_MSG.CD_PUBLIC_KEY.value]=""
-        data[PROTO_INIT_KEY_RESP_ENC_MSG.SIGNATURE_CD.value]=""
+        data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.ADR_CD.value]=adr_cd
+        data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.ID_CD.value]=""
+        data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.CD_PUBLIC_KEY.value]=""
+        data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.SIGNATURE_CD.value]=""
         return data
+
+
+
+
+
+
+#*************************************************************************
+# WSS Protocol Message Classes
+#*************************************************************************
+
+class ProtoWSSInitKeyReqMsg(SignatureMessage,STSDHECKeyExchangeMessage ):
+    def __init__(self, data:dict):
+        super().__init__(data)
+        self.fields = PROTO_WSS_INIT_KEY_REQ
+        self.signature_fields = self.fields
+        self.state = WSS_KEP_STATE.INIT_KEY_REQ
+        self._data = data
+
+    @staticmethod
+    def create_msg_data(adp_pc):
+        data = {}
+        data[PROTO_WSS_INIT_KEY_REQ.ADR_PC.value]=adp_pc
+        data[PROTO_WSS_INIT_KEY_REQ.HASH_PC_PUBLIC_KEY.value]=""
+        data[PROTO_WSS_INIT_KEY_REQ.G_X.value]=""
+        data[PROTO_WSS_INIT_KEY_REQ.SIGNATURE_PC.value]=""
+        return data
+
+    def get_sender_public_key_id(self)->str:
+        return self._data[PROTO_WSS_INIT_KEY_REQ.HASH_PC_PUBLIC_KEY.value]
+
+    def get_ephe_public_key(self)->str:
+        return self._data[PROTO_WSS_INIT_KEY_REQ.G_X.value]
+
+
+class ProtoWSSInitKeyRespEncMsg(SignatureMessage):
+    def __init__(self, data:dict):
+        super().__init__(data)
+        self.fields = PROTO_WSS_INIT_KEY_RESP_ENC_MSG
+        self.signature_fields = PROTO_WSS_INIT_KEY_RESP_SIG
+        self.state = ENROL_KEP_STATE.EMPTY
+        self._data = data
+
+    def get_sender_public_key_id(self)->str:
+        return self._data[PROTO_WSS_INIT_KEY_RESP_ENC_MSG.HASH_CD_PUBLIC_KEY.value]
+        
+    @staticmethod
+    def create_msg_data(adr_cd):
+        data = {}
+        data[PROTO_WSS_INIT_KEY_RESP_ENC_MSG.ADR_CD.value]=adr_cd
+        data[PROTO_WSS_INIT_KEY_RESP_ENC_MSG.HASH_CD_PUBLIC_KEY.value]=""
+        data[PROTO_WSS_INIT_KEY_RESP_ENC_MSG.SIGNATURE_CD.value]=""
+        return data
+
+#*************************************************************************
+# Common Message Classes
+#*************************************************************************
+
+class ProtoMsgInitKeyResp(AESGCMEncryptedMessage):
+    def __init__(self, data:dict):
+        super().__init__(data)
+        self.fields = PROTO_INIT_KEY_RESP
+        self.state = ENROL_KEP_STATE.INIT_KEY_RESP
+        self._data = data
+
+    @staticmethod
+    def create_msg_data(enc_msg:AESGCMEncryptedMessage):
+        data = {}
+        data[PROTO_INIT_KEY_RESP.G_Y.value]=""
+        data[PROTO_INIT_KEY_RESP.ENC_MSG.value]=enc_msg.get_data()
+        return data
+    
+    def get_ephe_public_key(self)->str:
+        return self._data[PROTO_INIT_KEY_RESP.G_Y.value]
+    
+    def get_encrypted_data(self):
+        return self._data[PROTO_INIT_KEY_RESP.ENC_MSG.value]
 
 class ProtoMsgConfirmKeyMsg(AESGCMEncryptedMessage):
     def __init__(self, data:dict):
         super().__init__(data)
         self.fields = PROTO_KEY_CONFIRM
-        self.state = KEP_STATE.KEY_CONFIRM_REQ
+        self.state = ENROL_KEP_STATE.KEY_CONFIRM_REQ
         self._data = data
 
     @staticmethod
@@ -435,38 +567,14 @@ class ProtoMsgConfirmKeyEncMsg(SignatureMessage):
         super().__init__(data)
         self.fields = PROTO_KEY_CONFIRM_ENC_MSG
         self.signature_fields = PROTO_KEY_CONFIRM_SIG
-        self.state = KEP_STATE.EMPTY
+        self.state = ENROL_KEP_STATE.EMPTY
         self._data = data
 
     @staticmethod
     def create_msg_data():
         data = {}
         data[PROTO_KEY_CONFIRM_ENC_MSG.SIGNATURE_CONFIRM.value]=""
-        return data
-
-
-class ProtoMsgInitKeyResp(AESGCMEncryptedMessage):
-    def __init__(self, data:dict):
-        super().__init__(data)
-        self.fields = PROTO_INIT_KEY_RESP
-        self.state = KEP_STATE.INIT_KEY_RESP
-        self._data = data
-
-    @staticmethod
-    def create_msg_data(enc_msg:AESGCMEncryptedMessage):
-        data = {}
-        data[PROTO_INIT_KEY_RESP.G_Y.value]=""
-        data[PROTO_INIT_KEY_RESP.ENC_MSG.value]=enc_msg.get_data()
-        return data
-    
-    def get_ephe_public_key(self)->str:
-        return self._data[PROTO_INIT_KEY_RESP.G_Y.value]
-    
-    def get_encrypted_data(self):
-        return self._data[PROTO_INIT_KEY_RESP.ENC_MSG.value]
-    #def get_decrypted_msg(self, derived_key:bytes)->dict:
-    #    return ProtoMsgInitKeyResp.decrypt_json(self._data[PROTO_INIT_KEY_RESP.ENC_MSG.value],derived_key)
-        
+        return data        
 
 
         
@@ -477,57 +585,112 @@ class ProtoMsgInitKeyResp(AESGCMEncryptedMessage):
 class EnrolmentProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
     def __init__(self, identity_store:IdentityStore):
         super().__init__()
-        self.states = KEP_STATE
+        self.states = ENROL_KEP_STATE
         self.current_state = self.states.EMPTY
         self.protocol_messages.extend([ProtoMsgInitKeyReq,ProtoMsgInitKeyResp,ProtoMsgConfirmKeyMsg])
-        self.identity_store = identity_store
-        self.pc_id = None
-        self.cd_id = None
+        self.identity_store = identity_store        
+        
+        self.my_private_key = self.identity_store.get_private_key()
+        self.my_public_key_str = self.identity_store.get_public_key_encoded_str()
+        self.my_id = self.identity_store.get_public_key_id()
+        self.my_name = self.identity_store.get_id()
+        self.their_name = None
+        self.their_public_key = None
+
     
     def process_outgoing_message(self, message:ProtocolMessage):
         if isinstance(message,ProtoMsgInitKeyReq):
             self.generate_secret()
-            message._data[PROTO_INIT_KEY_REQ.G_X.value] = self.get_ephe_public_key_string()
-            message._data[PROTO_INIT_KEY_REQ.ID_PC.value]=self.identity_store.get_id()
-            message._data[PROTO_INIT_KEY_REQ.PC_PUBLIC_KEY.value]=self.identity_store.get_public_key_encoded_str()
-            self.pc_id = self.identity_store.get_id()
+            message._data[PROTO_ENROL_INIT_KEY_REQ.G_X.value] = self.get_my_ephe_public_key_string()
+            message._data[PROTO_ENROL_INIT_KEY_REQ.ID_PC.value]=self.my_name
+            message._data[PROTO_ENROL_INIT_KEY_REQ.PC_PUBLIC_KEY.value]=self.my_public_key_str
         if isinstance(message,ProtoMsgInitKeyResp):
-            message._data[PROTO_INIT_KEY_RESP.G_Y.value] = self.get_ephe_public_key_string()
+            message._data[PROTO_INIT_KEY_RESP.G_Y.value] = self.get_my_ephe_public_key_string()
         if isinstance(message,ProtoMsgInitKeyRespEncMsg):
-            message._data[PROTO_INIT_KEY_RESP_ENC_MSG.CD_PUBLIC_KEY.value] = self.identity_store.get_public_key_encoded_str()
-            message._data[PROTO_INIT_KEY_RESP_ENC_MSG.ID_CD.value] = self.identity_store.get_id()
-            self.cd_id = self.identity_store.get_id()
-
+            message._data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.CD_PUBLIC_KEY.value] = self.my_public_key_str
+            message._data[PROTO_ENROL_INIT_KEY_RESP_ENC_MSG.ID_CD.value] = self.my_name
+            
         #This should go last to ensure auto data has been added
         if isinstance(message,SignatureMessage):
             if isinstance(message,ProtoMsgInitKeyRespEncMsg):
-                message.sign_message(self.identity_store.get_private_key(),None,{PROTO_INIT_KEY_RESP_SIG.G_Y.value:self.get_ephe_public_key_string(),PROTO_INIT_KEY_RESP_SIG.G_X.value:self.get_server_public_key_string()})
+                message.sign_message(self.my_private_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_my_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_their_ephe_public_key_string()})
             elif isinstance(message,ProtoMsgConfirmKeyEncMsg):
-                message.sign_message(self.identity_store.get_private_key(),None,{PROTO_INIT_KEY_RESP_SIG.G_Y.value:self.get_server_public_key_string(),PROTO_INIT_KEY_RESP_SIG.G_X.value:self.get_ephe_public_key_string()})
+                message.sign_message(self.my_private_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_their_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_my_ephe_public_key_string()})
             
             else:
-                message.sign_message(self.identity_store.get_private_key())
+                message.sign_message(self.my_private_key)
             
     def process_incoming_message(self, message:ProtocolMessage):
         if isinstance(message,ProtoMsgInitKeyReq):
             self.generate_secret()
-            self.receive_server_public_key(message.get_ephe_public_key())
-            self.pc_id = message.get_id()
-            self.identity_store.set_public_identity(message.get_id(),message.get_public_identity())
+            self.receive_their_public_key(message.get_ephe_public_key())
+            self.their_name = message.get_name()
+            self.identity_store.set_public_identity(message.get_name(),message.get_public_identity())
         if isinstance(message,ProtoMsgInitKeyResp):
-            self.receive_server_public_key(message.get_ephe_public_key())
+            self.receive_their_public_key(message.get_ephe_public_key())
             init_key_resp = ProtoMsgInitKeyRespEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
-            self.identity_store.set_public_identity(init_key_resp.get_id(),init_key_resp.get_public_identity())
-            temp_key =  serialization.load_pem_public_key(init_key_resp.get_public_identity().encode("UTF-8"))
-            self.cd_id = init_key_resp.get_id()
-            if not init_key_resp.verify_signature(temp_key,None,{PROTO_INIT_KEY_RESP_SIG.G_X.value:self.get_ephe_public_key_string(),PROTO_INIT_KEY_RESP_SIG.G_Y.value:self.get_server_public_key_string()}):
+            self.identity_store.set_public_identity(init_key_resp.get_name(),init_key_resp.get_public_identity())
+            self.their_public_key = serialization.load_pem_public_key(init_key_resp.get_public_identity().encode("UTF-8"))
+            self.their_name = init_key_resp.get_name()
+            if not init_key_resp.verify_signature(self.their_public_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_my_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_their_ephe_public_key_string()}):
                 raise ProtocolException("Signature verification failed")
         if isinstance(message,SignatureMessage):
             if isinstance(message,ProtoMsgConfirmKeyEncMsg):
-                if not message.verify_signature(self.identity_store.get_public_identity(self.cd_id),None,{PROTO_INIT_KEY_RESP_SIG.G_X.value:self.get_server_public_key_string(),PROTO_INIT_KEY_RESP_SIG.G_Y.value:self.get_ephe_public_key_string()}):
+                if not message.verify_signature(self.their_public_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_their_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_my_ephe_public_key_string()}):
                     raise ProtocolException("Signature verification failed")
             else:
-                message.verify_signature(self.identity_store.get_public_identity(message.get_id()))
+                message.verify_signature(self.identity_store.get_public_identity_from_key_id(message.get_sender_public_key_id()))
+
+class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
+    def __init__(self, identity_store:IdentityStore):
+        super().__init__()
+        self.states = WSS_KEP_STATE
+        self.current_state = self.states.EMPTY
+        self.protocol_messages.extend([ProtoWSSInitKeyReqMsg,ProtoMsgInitKeyResp,ProtoMsgConfirmKeyMsg])
+        self.identity_store = identity_store
+        
+        self.my_private_key = self.identity_store.get_private_key()
+        self.my_id = self.identity_store.get_public_key_id()
+        self.my_name = self.identity_store.get_id()
+        self.their_id = None
+    
+    def process_outgoing_message(self, message:ProtocolMessage):
+        if isinstance(message,ProtoWSSInitKeyReqMsg):
+            self.generate_secret()
+            message._data[PROTO_WSS_INIT_KEY_REQ.G_X.value] = self.get_my_ephe_public_key_string()
+            message._data[PROTO_WSS_INIT_KEY_REQ.HASH_PC_PUBLIC_KEY.value]=self.my_id
+        if isinstance(message,ProtoMsgInitKeyResp):
+            message._data[PROTO_INIT_KEY_RESP.G_Y.value] = self.get_my_ephe_public_key_string()
+        if isinstance(message,ProtoWSSInitKeyRespEncMsg):
+            message._data[PROTO_WSS_INIT_KEY_RESP_ENC_MSG.HASH_CD_PUBLIC_KEY.value] = self.my_id
+            
+        #This should go last to ensure auto data has been added
+        if isinstance(message,SignatureMessage):
+            if isinstance(message,ProtoWSSInitKeyRespEncMsg):
+                message.sign_message(self.my_private_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_my_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_their_ephe_public_key_string()})
+            elif isinstance(message,ProtoMsgConfirmKeyEncMsg):
+                message.sign_message(self.my_private_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_their_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_my_ephe_public_key_string()})
+            else:
+                message.sign_message(self.my_private_key)
+            
+    def process_incoming_message(self, message:ProtocolMessage):
+        if isinstance(message,ProtoWSSInitKeyReqMsg):
+            self.generate_secret()
+            self.receive_their_public_key(message.get_ephe_public_key())
+            self.their_id = message.get_sender_public_key_id()
+        if isinstance(message,ProtoMsgInitKeyResp):
+            self.receive_their_public_key(message.get_ephe_public_key())
+            init_key_resp = ProtoWSSInitKeyRespEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
+            self.their_id = init_key_resp.get_sender_public_key_id()
+            temp_key = self.identity_store.get_public_identity_from_key_id(self.their_id)
+            if not init_key_resp.verify_signature(temp_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_my_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_their_ephe_public_key_string()}):
+                raise ProtocolException("Signature verification failed")
+        if isinstance(message,SignatureMessage):
+            if isinstance(message,ProtoMsgConfirmKeyEncMsg):
+                if not message.verify_signature(self.identity_store.get_public_identity_from_key_id(self.their_id),None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_their_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_my_ephe_public_key_string()}):
+                    raise ProtocolException("Signature verification failed")
+            else:
+                message.verify_signature(self.identity_store.get_public_identity_from_key_id(message.get_sender_public_key_id()))                
             
 
 
