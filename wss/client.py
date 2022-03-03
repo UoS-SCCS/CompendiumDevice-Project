@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from enum import Enum
 import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import thread
@@ -12,9 +13,18 @@ from websockets.client import ClientConnection
 from websockets.http11 import Request, Response
 from websockets.frames import Frame,Opcode
 import threading
+from abc import ABC, abstractmethod, abstractproperty, abstractstaticmethod
 import logging
-from message import Message,TYPE,INITRESP
-
+from companion.identity import KeyRingIdentityStore
+from wss.message import Message,TYPE,INITRESP
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey,EllipticCurvePrivateKey
+from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding, PrivateFormat, NoEncryption
+from cryptography.hazmat.primitives import serialization 
+from tkinter import simpledialog
+from tkinter.simpledialog import Dialog
+import tkinter as tk
+import keyring
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 streamHandler = logging.StreamHandler(sys.stdout)
@@ -176,49 +186,17 @@ class WssClientListener(ABC):
     def ws_received(self,msg:Message):
         pass
 
-class Companion(WssClientListener):
-    def __init__(self):
-        self.ephe_wss_addr_local = None
-        self.client = WssClient()
-        self.client.connect()
-        self.client.add_listener(self)
-        self.client.send(Message.create_init())
-
-    def ws_received(self, msg: Message):
-        if msg.get_type() is TYPE.INITRESP:
-            self.ephe_wss_addr_local=msg[INITRESP.ADR.value]
-            logger.debug("Set client address:%s",self.ephe_wss_addr_local)
-        elif msg.get_type() is TYPE.DELIVER:
-            logger.debug("Delivered:%s",msg)
-            self.client.close()
-        else:
-            logger.debug("Received:%s",msg)
-
-    def establish_secure_connection(self, remote_adr:str):
-        proto1 = {"test":"testmessage"}
-        self.client.send(Message.create_route(remote_adr,proto1))
-
-
 if __name__ == "__main__":
-    #client = WssClient()
-    #asyncio.run(client.connect())
-    #asyncio.run(client.connect())
-    #testapp = TestApp()
-    #client.connect()
-    #client.add_listener(testapp)
 
-    #client.send(Message.create_init())
+    #pc = PC()
+    #if(True):
+    #    exit()
     companion_one = Companion()
     companion_two = Companion()
     sleep(5)
     companion_one.establish_secure_connection(companion_two.ephe_wss_addr_local)
 
 
-    #loop = asyncio.get_event_loop()
-    #asyncio.run(sleep_func())
-
-    #threading.Thread(target=sleep_func).start()
-    #asyncio.ensure_future(client.listen())
 
 
 

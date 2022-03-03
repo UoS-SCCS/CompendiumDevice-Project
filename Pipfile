@@ -5,6 +5,9 @@ name = "pypi"
 
 [packages]
 websockets = "*"
+cryptography = "*"
+keyring = "*"
+secretstorage = "*"
 
 [dev-packages]
 autopep8 = "*"
