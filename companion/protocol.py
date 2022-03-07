@@ -16,12 +16,12 @@ from cryptography.hazmat.primitives.asymmetric import utils
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
 from enum import Enum
-import base64
+
 from typing import List
 import json
 import sys
 import logging
-
+from companion.utils import CryptoUtils, B64
 from companion.identity import IdentityStore, KeyRingIdentityStore
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -33,14 +33,10 @@ protologger.setLevel(logging.DEBUG)
 protologger.addHandler(streamHandler)
 
 
-class B64():
-    @staticmethod
-    def encode(data:bytes)->str:
-        return base64.encodebytes(data).decode("UTF-8")
-    
-    @staticmethod
-    def decode(b64string:str)->bytes:
-        return base64.decodebytes(b64string.encode("UTF-8"))
+
+
+
+
 
 class ProtocolException(Exception):
     pass
@@ -378,13 +374,16 @@ class STSDHKeyExchangeProtocol(Protocol):
         self.ephe_public = self.ephe_private.public_key()
 
     def get_my_ephe_public_key_string(self):
-        return self.ephe_public.public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo).decode("UTF-8")
+        return CryptoUtils.public_key_to_string(self.ephe_public)
+        #return B64.encode(self.ephe_public.public_bytes(Encoding.DER,PublicFormat.SubjectPublicKeyInfo))
 
     def get_their_ephe_public_key_string(self):
-        return self.server_public.public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo).decode("UTF-8")
+        return CryptoUtils.public_key_to_string(self.server_public)
+        #return B64.encode(self.server_public.public_bytes(Encoding.DER,PublicFormat.SubjectPublicKeyInfo))
 
-    def receive_their_public_key(self, server_public_key_pem:str):
-        self.server_public = serialization.load_pem_public_key(server_public_key_pem.encode("UTF-8"))
+    def receive_their_public_key(self, server_public_key:str):
+        
+        self.server_public = CryptoUtils.load_public_key_from_string(server_public_key)
         self.shared_key = self.ephe_private.exchange(ec.ECDH(), self.server_public)
         self.derived_key = HKDF(algorithm=hashes.SHA256(),
                                 length=32,
@@ -649,7 +648,7 @@ class EnrolmentProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
             init_key_resp = ProtoMsgInitKeyRespEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
             self.ephe_address_remote = init_key_resp.get_ephe_remote_addr()
             self.identity_store.set_public_identity(init_key_resp.get_name(),init_key_resp.get_public_identity())
-            self.their_public_key = serialization.load_pem_public_key(init_key_resp.get_public_identity().encode("UTF-8"))
+            self.their_public_key = CryptoUtils.load_public_key_from_string(init_key_resp.get_public_identity())
             self.their_name = init_key_resp.get_name()
             if not init_key_resp.verify_signature(self.their_public_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_my_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_their_ephe_public_key_string()}):
                 raise ProtocolException("Signature verification failed")
@@ -661,9 +660,10 @@ class EnrolmentProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
                 message.verify_signature(self.identity_store.get_public_identity_from_key_id(message.get_sender_public_key_id()))
 
 class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
-    def __init__(self, identity_store:IdentityStore):
+    def __init__(self, identity_store:IdentityStore, target_id:str):
         super().__init__()
         self.states = WSS_KEP_STATE
+        self.target_id = target_id
         self.current_state = self.states.EMPTY
         self.protocol_messages.extend([ProtoWSSInitKeyReqMsg,ProtoMsgInitKeyResp,ProtoMsgConfirmKeyMsg])
         self.identity_store = identity_store
@@ -674,7 +674,8 @@ class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
         self.their_id = None
         self.ephe_address_remote = None
     
-    
+    def get_target_id(self)->str:
+        return self.target_id
 
     def process_outgoing_message(self, message:ProtocolMessage):
         if isinstance(message,ProtoWSSInitKeyReqMsg):

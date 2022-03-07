@@ -8,6 +8,8 @@ websockets = "*"
 cryptography = "*"
 keyring = "*"
 secretstorage = "*"
+qrcode = {extras = ["pil"], version = "*"}
+requests = "*"
 
 [dev-packages]
 autopep8 = "*"

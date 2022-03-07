@@ -4,9 +4,12 @@ from cgi import test
 from wss.client import WssClientListener, WssClient, Message, TYPE, INITRESP
 from companion.identity import KeyRingIdentityStore
 from companion.protocol import EnrolmentProtocol, ProtoMsgConfirmKeyEncMsg, ProtoMsgConfirmKeyMsg,ProtoMsgInitKeyReq,ProtoMsgInitKeyResp, ProtoMsgInitKeyRespEncMsg, ProtoWSSInitKeyReqMsg, ProtoWSSInitKeyRespEncMsg, WSSKeyExchangeProtocol
+import requests
 import sys
 import logging
+import threading
 from enum import Enum
+from companion.ui import UI
 import json
 
 from wss.message import DELIVER
@@ -15,6 +18,9 @@ logger.setLevel(logging.DEBUG)
 streamHandler = logging.StreamHandler(sys.stdout)
 logger.addHandler(streamHandler)
 
+PUSH_SERVER_ADDRESS="http://localhost"
+PUSH_SERVER_PORT=5000
+PUSH_PATH = "/pushmessage"
 class CD_MODE(Enum):
     IDLE=0
     ENROL = 1
@@ -27,7 +33,7 @@ class Companion(WssClientListener):
     # Enrolment storage
     # Protocol
     def __init__(self):
-        self.identity_store = KeyRingIdentityStore("Compendium2")
+        self.identity_store = KeyRingIdentityStore(service_name="Compendium2")
         self.ephe_wss_addr_local = None
         self.client = WssClient()
         self.current_protocol = None
@@ -94,7 +100,17 @@ class PC(WssClientListener):
         self.current_protocol = None
         self.mode = PC_MODE.IDLE
         
-        
+    def qr_callback(self,res):
+        print("qrcallback:" + res)    
+
+    def get_key_from_name(self, name:str)->str:
+        return self.identity_store.get_public_identity_str_from_name(name)
+    def get_key_names(self):
+        return self.identity_store.get_key_names()
+    
+    def get_key_ids(self):
+        return self.identity_store.get_key_ids()
+
     def ws_received(self, msg: Message):
         if msg.get_type() is TYPE.INITRESP:
             self.ephe_wss_addr_local=msg[INITRESP.ADR.value]
@@ -102,11 +118,14 @@ class PC(WssClientListener):
             msg_one = self.current_protocol.prepare_outgoing_msg(self.current_protocol.get_next_message_class().create_msg_data(self.ephe_wss_addr_local))
             if self.mode == PC_MODE.ENROL:
                 #showQRCode
-                cd.receive_qr_code(msg_one.get_string())
+                UI.show_qr_screen_new_process(msg_one.get_string(),self.qr_callback)
+                #cd.receive_qr_code(msg_one.get_string())
                 pass
             elif self.mode == PC_MODE.WSS:
                 #send as push
-                cd.receive_push(msg_one.get_string())
+                
+                self.send_push_notification(self.current_protocol.get_target_id(),msg_one.get_data())
+                #cd.receive_push(msg_one.get_string())
                 pass
         elif msg.get_type() is TYPE.DELIVER:
             logger.debug("Delivered:%s",msg)
@@ -136,13 +155,30 @@ class PC(WssClientListener):
         self.client.add_listener(self)
         self.client.send(Message.create_init())
     
-    def start_wss(self):
-        self.current_protocol = WSSKeyExchangeProtocol(self.identity_store)
+    def start_wss(self, key_id:str):
+        self.current_protocol = WSSKeyExchangeProtocol(self.identity_store,key_id)
         self.mode = PC_MODE.WSS
         self.client.connect()
         self.client.add_listener(self)
         self.client.send(Message.create_init())
 
+    def send_push_notification(self,target_id:str,content:dict):
+        t = threading.Thread(target=self._request_sender,daemon=True, args=(target_id,content,self.push_request_response))
+        t.start()
+    
+    def push_request_response(self, response):
+        print(response.status_code)
+    
+    def _request_sender(self, target_id:str, content:dict,callback):
+        msg = {}
+        msg["msg"]=content
+        msg["pub_key"]=target_id
+        
+        web_address = PUSH_SERVER_ADDRESS
+        if(not PUSH_SERVER_PORT ==""):
+            web_address = web_address + ":" + str(PUSH_SERVER_PORT)
+        web_address = web_address + PUSH_PATH
+        callback(requests.post(web_address,json=msg, timeout=30))
         
 
 
@@ -236,8 +272,13 @@ cd = None
 if __name__ == "__main__":
 
     pc = PC()
-    cd = Companion()
-    pc.start_wss()
+    #cd = Companion()
+    #print(pc.get_key_ids())
+    #print(pc.get_key_names())
+    #pc.start_enrolment()
+    key = pc.get_key_from_name("Android SDK built for x86")
+    print(key)
+    pc.start_wss(key)
     
     #test_enrolment()
     #test_wss()
