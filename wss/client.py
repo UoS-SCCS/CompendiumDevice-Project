@@ -70,11 +70,14 @@ class WssClient():
             logger.debug("Waiting for message to send")
 
             msg = self.send_queue.get()
+            print("process queue",msg)
             self.connection.send_text(msg.encode_as_bytes())
             logger.debug("Sent message %s",msg)
             self._send_data()
 
     def close(self):
+        print("close called")
+        self.connected = False
         self.connection.send_close(1000)
         self._send_data()
         threading.Thread(target=self._close_socket(),daemon=True).start()

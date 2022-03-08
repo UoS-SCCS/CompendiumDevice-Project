@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from operator import add
 import os
 from abc import ABC, abstractmethod, abstractproperty, abstractstaticmethod
 
@@ -17,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
 from enum import Enum
 
-from typing import List
+from typing import List, Union
 import json
 import sys
 import logging
@@ -97,6 +98,8 @@ class WSS_KEP_STATE(STATE,Enum):
     INIT_KEY_REQ = 1
     INIT_KEY_RESP = 2
     KEY_CONFIRM_REQ = 3
+    CORE_REQ = 4
+    CORE_RESP = 5
 
 class PROTO_WSS_INIT_KEY_REQ(FIELDS):
     ADR_PC = "adr_pc"
@@ -143,6 +146,74 @@ class PROTO_ENC_MSG(FIELDS):
 
 class PROTO_EMPTY(FIELDS):
     pass
+
+#*************************************************************************
+# Core Message Fields
+#*************************************************************************
+class PROTO_CORE(FIELDS):
+    ENC_MSG = "enc_msg"
+
+class PROTO_CORE_REG_REQ(FIELDS):
+    TYPE = "type"
+    ID_CD = "id_cd"
+    APP_ID ="app_id"
+    DESC = "desc"
+    SIGNATURE_MSG = "signature"
+
+class PROTO_CORE_REG_RES(FIELDS):
+    TYPE = "type"
+    APP_ID ="app_id"
+    APP_PK ="app_pk"
+    SIGNATURE_MSG = "signature"
+
+class PROTO_CORE_VERIFY_REQ(FIELDS):
+    TYPE = "type"
+    ID_CD = "id_cd"
+    APP_ID ="app_id"
+    DESC = "desc"
+    CODE = "code"
+    NONCE = "nonce"
+    SIGNATURE_MSG = "signature"
+
+class PROTO_CORE_VERIFY_RES(FIELDS):
+    TYPE = "type"
+    APP_ID ="app_id"
+    APP_SIG ="app_sig"
+    SIGNATURE_MSG = "signature"
+
+class PROTO_CORE_PUT_REQ(FIELDS):
+    TYPE = "type"
+    ID_CD = "id_cd"
+    APP_ID ="app_id"
+    DESC = "desc"
+    CODE = "code"
+    DATA = "data"
+    SIGNATURE_MSG = "signature"
+
+class PROTO_CORE_PUT_RES(FIELDS):
+    TYPE = "type"
+    ENC_DATA ="encdata"
+    SIGNATURE_MSG = "signature"
+
+
+class PROTO_CORE_GET_REQ(FIELDS):
+    TYPE = "type"
+    ID_CD = "id_cd"
+    APP_ID ="app_id"
+    DESC = "desc"
+    CODE = "code"
+    ENC_DATA = "encdata"
+    SIGNATURE_MSG = "signature"
+
+class PROTO_CORE_GET_RES(FIELDS):
+    TYPE = "type"
+    DATA ="data"
+    SIGNATURE_MSG = "signature"
+
+class PROTO_CORE_RESP_ERR(FIELDS):
+    ERROR_CONDITION = "err"
+    SIGNATURE_MSG = "signature"
+
 
 #*************************************************************************
 # Abstract Protocol Message Classes
@@ -590,6 +661,108 @@ class ProtoMsgConfirmKeyEncMsg(SignatureMessage):
         data[PROTO_KEY_CONFIRM_ENC_MSG.SIGNATURE_CONFIRM.value]=""
         return data        
 
+#*************************************************************************
+# Core Message Classes
+#*************************************************************************
+#, sub_message:Union[PROTO_CORE_GET_REQ,PROTO_CORE_GET_RES,PROTO_CORE_PUT_REQ,PROTO_CORE_PUT_RES,PROTO_CORE_REG_REQ,PROTO_CORE_REG_RES,PROTO_CORE_VERIFY_REQ,PROTO_CORE_VERIFY_RES]
+class ProtoMsgCoreMsg(AESGCMEncryptedMessage):
+    def __init__(self, data:dict):
+        super().__init__(data)
+        self.fields = PROTO_CORE# sub_message
+        self.state = WSS_KEP_STATE.CORE_REQ
+        self._data = data
+
+    @staticmethod
+    def create_msg_data(enc_msg:AESGCMEncryptedMessage):
+        data = {}
+        data[PROTO_CORE.ENC_MSG.value]=enc_msg.get_data()
+        return data
+    
+    def get_encrypted_data(self):
+        return self._data[PROTO_CORE.ENC_MSG.value]
+
+class ProtoMsgCoreRespMsg(AESGCMEncryptedMessage):
+    def __init__(self, data:dict):
+        super().__init__(data)
+        self.fields = PROTO_CORE# sub_message
+        self.state = WSS_KEP_STATE.CORE_RESP
+        self._data = data
+
+    @staticmethod
+    def create_msg_data(enc_msg:AESGCMEncryptedMessage):
+        data = {}
+        data[PROTO_CORE.ENC_MSG.value]=enc_msg.get_data()
+        return data
+    
+    def get_encrypted_data(self):
+        return self._data[PROTO_CORE.ENC_MSG.value]
+
+class ProtoMsgCoreEncMsg(SignatureMessage):
+    def __init__(self, data:dict, message_type:Union[PROTO_CORE_GET_REQ,PROTO_CORE_GET_RES,PROTO_CORE_PUT_REQ,PROTO_CORE_PUT_RES,PROTO_CORE_REG_REQ,PROTO_CORE_REG_RES,PROTO_CORE_VERIFY_REQ,PROTO_CORE_VERIFY_RES]):
+        super().__init__(data)
+        self.fields = message_type
+        self.signature_fields = message_type
+        self.state = WSS_KEP_STATE.EMPTY
+        self._data = data
+
+    @classmethod
+    def parse(cls, msg:dict)->'ProtocolMessage':
+        if "type" not in msg:
+            return None
+        type = msg["type"]
+        message_type = None
+        if type == "Get":
+            if PROTO_CORE_GET_REQ.DESC.value in msg:
+                message_type=PROTO_CORE_GET_REQ
+            else:
+                message_type=PROTO_CORE_GET_RES
+                
+        elif type == "Put":
+            if PROTO_CORE_PUT_REQ.DESC.value in msg:
+                message_type=PROTO_CORE_PUT_REQ
+            else:    
+                message_type=PROTO_CORE_PUT_RES
+            
+                
+        elif type == "Reg":
+            if PROTO_CORE_REG_REQ.DESC.value in msg:
+                message_type=PROTO_CORE_REG_REQ
+            else:
+                message_type=PROTO_CORE_REG_RES
+                
+        elif type == "Verify":
+            if PROTO_CORE_VERIFY_REQ.DESC.value in msg:
+                message_type=PROTO_CORE_VERIFY_REQ
+            else:
+                message_type=PROTO_CORE_VERIFY_RES
+                
+        else:
+            return None
+        
+        temp_obj = cls(msg, message_type)
+        if temp_obj._validate():
+            return temp_obj
+        else:
+            return None
+
+    
+    @staticmethod
+    def create_msg_data(message_type:Union[PROTO_CORE_GET_REQ,PROTO_CORE_GET_RES,PROTO_CORE_PUT_REQ,PROTO_CORE_PUT_RES,PROTO_CORE_REG_REQ,PROTO_CORE_REG_RES,PROTO_CORE_VERIFY_REQ,PROTO_CORE_VERIFY_RES],additional_data:dict):
+        data = {}
+        if issubclass(message_type, PROTO_CORE_GET_REQ) or issubclass(message_type,PROTO_CORE_GET_RES):
+            data[message_type.TYPE.value]="Get"
+        elif issubclass(message_type, PROTO_CORE_PUT_REQ) or issubclass(message_type, PROTO_CORE_PUT_RES):
+            data[message_type.TYPE.value]="Put"
+        elif issubclass(message_type, PROTO_CORE_REG_REQ) or issubclass(message_type, PROTO_CORE_REG_RES):
+            data[message_type.TYPE.value]="Reg"
+        elif issubclass(message_type, PROTO_CORE_VERIFY_REQ) or issubclass(message_type, PROTO_CORE_VERIFY_RES):
+            data[message_type.TYPE.value]="Verify"
+        for field in message_type:
+            if field.value in additional_data:
+                data[field.value]=additional_data[field.value]
+        data[message_type.SIGNATURE_MSG.value]=""
+        return data        
+
 
         
 #*************************************************************************
@@ -660,12 +833,13 @@ class EnrolmentProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
                 message.verify_signature(self.identity_store.get_public_identity_from_key_id(message.get_sender_public_key_id()))
 
 class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
-    def __init__(self, identity_store:IdentityStore, target_id:str):
+    def __init__(self, identity_store:IdentityStore, target_id:str=None):
         super().__init__()
         self.states = WSS_KEP_STATE
         self.target_id = target_id
         self.current_state = self.states.EMPTY
-        self.protocol_messages.extend([ProtoWSSInitKeyReqMsg,ProtoMsgInitKeyResp,ProtoMsgConfirmKeyMsg])
+        self.protocol_messages.extend([ProtoWSSInitKeyReqMsg,ProtoMsgInitKeyResp,ProtoMsgConfirmKeyMsg,ProtoMsgCoreMsg,ProtoMsgCoreRespMsg])
+        
         self.identity_store = identity_store
         
         self.my_private_key = self.identity_store.get_private_key()
@@ -673,9 +847,16 @@ class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
         self.my_name = self.identity_store.get_id()
         self.their_id = None
         self.ephe_address_remote = None
+        self.core_request = None
     
     def get_target_id(self)->str:
         return self.target_id
+    
+    def get_core_request(self)->dict:
+        return self.core_request
+
+    def get_target_public_identity(self)->str:
+        return self.identity_store.get_public_identity_from_key_id(self.target_id)
 
     def process_outgoing_message(self, message:ProtocolMessage):
         if isinstance(message,ProtoWSSInitKeyReqMsg):
@@ -701,15 +882,34 @@ class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
             self.generate_secret()
             self.receive_their_public_key(message.get_ephe_public_key())
             self.their_id = message.get_sender_public_key_id()
+            #we set the target_id based on who initialised the request
+            self.target_id = self.their_id
+            
             self.ephe_address_remote = message.get_ephe_remote_addr()
         if isinstance(message,ProtoMsgInitKeyResp):
             self.receive_their_public_key(message.get_ephe_public_key())
             init_key_resp = ProtoWSSInitKeyRespEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
             self.ephe_address_remote = init_key_resp.get_ephe_remote_addr()
             self.their_id = init_key_resp.get_sender_public_key_id()
-            temp_key = self.identity_store.get_public_identity_from_key_id(self.their_id)
+            print(self.their_id + ":" + self.target_id)
+            if self.their_id!=self.target_id:
+                raise ProtocolException("Inconsistent IDs, target and response do not match")
+            #temp_key = self.identity_store.get_public_identity_from_key_id(self.their_id)
+            #We use the target ID because they should be responding with the ID we expected
+            temp_key = self.identity_store.get_public_identity_from_key_id(self.target_id)
             if not init_key_resp.verify_signature(temp_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_my_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_their_ephe_public_key_string()}):
                 raise ProtocolException("Signature verification failed")
+        if isinstance(message,ProtoMsgCoreMsg):
+            core_req = ProtoMsgCoreEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
+            if not core_req.verify_signature(self.identity_store.get_public_identity_from_key_id(self.their_id),None):
+                raise ProtocolException("Signature verification failed")
+            self.core_request = core_req.get_data()
+        if isinstance(message,ProtoMsgCoreRespMsg):
+            core_req = ProtoMsgCoreEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
+            if not core_req.verify_signature(self.identity_store.get_public_identity_from_key_id(self.their_id),None):
+                raise ProtocolException("Signature verification failed")
+            self.core_request = core_req.get_data()
+            
         if isinstance(message,SignatureMessage):
             if isinstance(message,ProtoMsgConfirmKeyEncMsg):
                 if not message.verify_signature(self.identity_store.get_public_identity_from_key_id(self.their_id),None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_their_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_my_ephe_public_key_string()}):

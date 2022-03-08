@@ -54,6 +54,9 @@ class IdentityStore(ABC):
     def get_public_identity_from_key_id(self, key_id:str)->EllipticCurvePublicKey:
         pass
 
+    @abstractmethod
+    def get_public_key_id_from_name(self, name:str)->str:
+        pass 
     @abstractmethod    
     def get_public_identity_str_from_name(self, name:str)->str:
         pass
@@ -141,6 +144,10 @@ class PublicIdentityStore(ABC):
         pass
 
     @abstractmethod
+    def get_public_key_id_from_name(self, name:str)->str:
+        pass
+
+    @abstractmethod
     def set_public_identity(self, name:str, key:str)->str:
         pass
     
@@ -225,7 +232,10 @@ class JSONPublicIdentityStore(PublicIdentityStore):
         if name in self.data[JSONPublicIdentityStore.NAMEIDX]:
             return self.get_public_identity_str_from_key_id(self.data[JSONPublicIdentityStore.NAMEIDX][name])
         return None
-        
+    def get_public_key_id_from_name(self, name:str)->str:
+        if name in self.data[JSONPublicIdentityStore.NAMEIDX]:
+            return self.data[JSONPublicIdentityStore.NAMEIDX][name]
+        return None
     def get_public_identity_str_from_key_id(self, key_id:str)->str:
         if key_id in self.data[JSONPublicIdentityStore.KEYS]:
             return self.data[JSONPublicIdentityStore.KEYS][key_id]
@@ -299,6 +309,10 @@ class KeyRingIdentityStore(IdentityStore):
         
     def get_public_identity_from_key_id(self, key_id:str)->EllipticCurvePublicKey:
         return CryptoUtils.load_public_key_from_string(self.get_public_identity_str_from_key_id(key_id))
+    
+    def get_public_key_id_from_name(self, name:str)->str:
+        return self.public_id_store.get_public_key_id_from_name(name)
+        #return self.get_public_identity_str_from_key_id(keyring.get_password(self.SERVICE_NAME_IDX,name))
     
     def get_public_identity_str_from_name(self, name:str)->str:
         return self.public_id_store.get_public_identity_str_from_name(name)
