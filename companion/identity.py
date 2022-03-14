@@ -270,7 +270,8 @@ class KeyRingIdentityStore(IdentityStore):
         if service_name is not None:
             self.SERVICE_NAME = service_name
         self._check_initialised()
-    
+
+    #This is only used by the test CD - the PC should never use this
     def get_id(self)->str:
         return self.public_id_store.get_id()
 
@@ -295,13 +296,15 @@ class KeyRingIdentityStore(IdentityStore):
         else:
             self.load_public_key(keyring.get_password(self.SERVICE_NAME,IDENTITY_KEY_PUBLIC))
         
-        if(self.public_id_store.get_id() is None):
-            self.public_id_store.set_id(self.get_identity_name())
-            
-            if(self.public_id_store.get_id() is None or self.public_id_store.get_id() == ""):
-                self.public_id_store.set_id(socket.gethostname())
-            if(self.public_id_store.get_id() is None):
-                raise Exception("Unable to set device id")
+        #This has been removed in favour of setting a device name on the Companion Device
+        #TODO Delete below after testing
+        #if(self.public_id_store.get_id() is None):
+        #    self.public_id_store.set_id(self.get_identity_name())
+        #    
+        #    if(self.public_id_store.get_id() is None or self.public_id_store.get_id() == ""):
+        #        self.public_id_store.set_id(socket.gethostname())
+        #    if(self.public_id_store.get_id() is None):
+        #        raise Exception("Unable to set device id")
             
             
     def get_public_identity_from_name(self, name:str)->EllipticCurvePublicKey:
