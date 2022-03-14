@@ -48,6 +48,11 @@ class EncryptedProtocolException(Exception):
 class SignatureException(Exception):
     pass
 
+class ProtocolRemoteException(Exception):
+    def __init__(self, err_code:int, err_msg:str, *args: object) -> None:
+        super().__init__(*args)
+        self.err_code=err_code
+        self.err_msg = err_msg
 
 #*************************************************************************
 # Constants
@@ -73,7 +78,6 @@ class ENROL_KEP_STATE(STATE,Enum):
 class PROTO_ENROL_INIT_KEY_REQ(FIELDS):
     ADR_PC = "adr_pc"
     PC_PUBLIC_KEY = "pc_public_key"
-    ID_PC = "id_pc"
     G_X = "g_to_x"
     SIGNATURE_PC = "signature_pc"
 
@@ -214,7 +218,10 @@ class PROTO_CORE_RESP_ERR(FIELDS):
     ERROR_CONDITION = "err"
     SIGNATURE_MSG = "signature"
 
-
+class ERROR_MESSAGE(FIELDS):
+    TYPE = "type"
+    ERROR_CONDITION = "error-condition"
+    SIGNATURE_MSG = "signature"
 #*************************************************************************
 # Abstract Protocol Message Classes
 #*************************************************************************
@@ -415,6 +422,7 @@ class Protocol(ABC):
         else:
             data = json.loads(msg)
 
+        
         if len(self.protocol_messages)>self.current_state.value+1:
             protocol_message = self.protocol_messages[self.current_state.value+1].parse(data)
             if protocol_message is None:
@@ -425,6 +433,9 @@ class Protocol(ABC):
             return protocol_message
         return None
     
+
+
+
     def process_outgoing_message(self, message:ProtocolMessage):
         pass
 
@@ -497,8 +508,6 @@ class ProtoMsgInitKeyReq(SignatureMessage,STSDHECKeyExchangeMessage ):
         self.state = ENROL_KEP_STATE.INIT_KEY_REQ
         self._data = data
 
-    def get_name(self):
-        return self._data[PROTO_ENROL_INIT_KEY_REQ.ID_PC.value]
     def get_sender_public_key_id(self):
         return IdentityStore.calculate_public_key_identifier(self.get_public_identity())
 
@@ -511,7 +520,6 @@ class ProtoMsgInitKeyReq(SignatureMessage,STSDHECKeyExchangeMessage ):
     def create_msg_data(adp_pc):
         data = {}
         data[PROTO_ENROL_INIT_KEY_REQ.ADR_PC.value]=adp_pc
-        data[PROTO_ENROL_INIT_KEY_REQ.ID_PC.value]=""
         data[PROTO_ENROL_INIT_KEY_REQ.PC_PUBLIC_KEY.value]=""
         data[PROTO_ENROL_INIT_KEY_REQ.G_X.value]=""
         data[PROTO_ENROL_INIT_KEY_REQ.SIGNATURE_PC.value]=""
@@ -764,7 +772,41 @@ class ProtoMsgCoreEncMsg(SignatureMessage):
         return data        
 
 
-        
+#*************************************************************************
+# Error Message Classes
+#*************************************************************************
+class ProtoErrorMsg(AESGCMEncryptedMessage):
+    def __init__(self, data:dict):
+        super().__init__(data)
+        self.fields = PROTO_CORE# sub_message
+        self.state = WSS_KEP_STATE.CORE_RESP
+        self._data = data
+
+    @staticmethod
+    def create_msg_data(enc_msg:AESGCMEncryptedMessage):
+        data = {}
+        data[PROTO_CORE.ENC_MSG.value]=enc_msg.get_data()
+        return data
+    
+    def get_encrypted_data(self):
+        return self._data[PROTO_CORE.ENC_MSG.value]
+
+class ProtoErrorEncMsg(SignatureMessage):
+    def __init__(self, data:dict):
+        super().__init__(data)
+        self.fields = ERROR_MESSAGE
+        self.signature_fields = ERROR_MESSAGE
+        self.state = WSS_KEP_STATE.EMPTY
+        self._data = data
+    
+    @staticmethod
+    def create_msg_data(type:str, error_condition:str):
+        data = {}
+        data[ERROR_MESSAGE.TYPE.value]=type
+        data[ERROR_MESSAGE.ERROR_CONDITION.value]=error_condition
+        return data        
+
+
 #*************************************************************************
 # Concrete Protocol Classes
 #*************************************************************************
@@ -791,7 +833,6 @@ class EnrolmentProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
         if isinstance(message,ProtoMsgInitKeyReq):
             self.generate_secret()
             message._data[PROTO_ENROL_INIT_KEY_REQ.G_X.value] = self.get_my_ephe_public_key_string()
-            message._data[PROTO_ENROL_INIT_KEY_REQ.ID_PC.value]=self.my_name
             message._data[PROTO_ENROL_INIT_KEY_REQ.PC_PUBLIC_KEY.value]=self.my_public_key_str
         if isinstance(message,ProtoMsgInitKeyResp):
             message._data[PROTO_INIT_KEY_RESP.G_Y.value] = self.get_my_ephe_public_key_string()
@@ -900,12 +941,25 @@ class WSSKeyExchangeProtocol(STSDHKEwithAESGCMEncrypedMessageProtocol):
             if not init_key_resp.verify_signature(temp_key,None,{PROTO_ENROL_INIT_KEY_RESP_SIG.G_X.value:self.get_my_ephe_public_key_string(),PROTO_ENROL_INIT_KEY_RESP_SIG.G_Y.value:self.get_their_ephe_public_key_string()}):
                 raise ProtocolException("Signature verification failed")
         if isinstance(message,ProtoMsgCoreMsg):
-            core_req = ProtoMsgCoreEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
+            msg = self.decrypt_json_message(message.get_encrypted_data())
+            if "error-condition" in msg:
+                json_error_msg = json.loads(msg["error-condition"])
+                raise ProtocolRemoteException(json_error_msg["error-code"],json_error_msg["error-message"])
+            core_req = ProtoMsgCoreEncMsg.parse(msg)
             if not core_req.verify_signature(self.identity_store.get_public_identity_from_key_id(self.their_id),None):
                 raise ProtocolException("Signature verification failed")
             self.core_request = core_req.get_data()
         if isinstance(message,ProtoMsgCoreRespMsg):
-            core_req = ProtoMsgCoreEncMsg.parse(self.decrypt_json_message(message.get_encrypted_data()))
+            msg =self.decrypt_json_message(message.get_encrypted_data())
+            if "error-condition" in msg:
+                core_req = ProtoErrorEncMsg.parse(msg)
+                if not core_req.verify_signature(self.identity_store.get_public_identity_from_key_id(self.their_id),None):
+                    raise ProtocolException("Signature verification failed")
+                self.core_request = core_req.get_data()
+                error_condition = json.loads(self.core_request["error-condition"])
+                raise ProtocolRemoteException(error_condition["error-code"],error_condition["error-message"])
+                
+            core_req = ProtoMsgCoreEncMsg.parse(msg)
             if not core_req.verify_signature(self.identity_store.get_public_identity_from_key_id(self.their_id),None):
                 raise ProtocolException("Signature verification failed")
             self.core_request = core_req.get_data()
