@@ -50,6 +50,7 @@ class WssClient():
         self.received_queue_thread = None
         self.send_queue_thread = None
         self.connected=False
+        self.shutdown_called=False
 
     def add_listener(self,listener):
         self._listeners.append(listener)
@@ -77,10 +78,11 @@ class WssClient():
 
     def close(self):
         print("close called")
-        self.connected = False
-        self.connection.send_close(1000)
-        self._send_data()
-        threading.Thread(target=self._close_socket(),daemon=True).start()
+        if self.connected:
+            self.connected = False
+            self.connection.send_close(1000)
+            self._send_data()
+            threading.Thread(target=self._close_socket(),daemon=True).start()
     def _process_frame(self,frame:Frame):
         logger.debug("Received frame: %s",frame)
         if frame.opcode == Opcode.PING:
@@ -91,6 +93,8 @@ class WssClient():
             if frame.fin:
                 self.received_queue.put(self.frame_buffer.decode())
                 self.frame_buffer.clear()
+        elif frame.opcode == Opcode.CLOSE:
+            self._close_socket(True)
         else:
             print(frame)
 
@@ -137,7 +141,13 @@ class WssClient():
                 self.websocket = None
                 break
         """
-    def _close_socket(self):
+    def _close_socket(self, immediate=False):
+        if not self.shutdown_called:
+            self.sock.shutdown(socket.SHUT_WR)
+            self.shutdown_called=True
+        if immediate:
+            self.sock.close()
+            return
         sleep(10)
         self.sock.close()
 
@@ -165,7 +175,9 @@ class WssClient():
             if data:
                 self.sock.sendall(data)
             else:
-                self.sock.shutdown(socket.SHUT_WR)
+                if not self.shutdown_called:
+                    self.sock.shutdown(socket.SHUT_WR)
+                    self.shutdown_called=True
 
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
