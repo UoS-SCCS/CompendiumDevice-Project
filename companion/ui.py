@@ -82,7 +82,7 @@ class UI():
 def test_callback(res):
     print("Callback: %s", res)
 if __name__ == "__main__":
-    msg = '{"adr_pc": "testAdr", "id_pc": "PC", "pc_public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHCSLFSb1Ls7Pq1Z5jIPmyiA91WQm\nFdRyKMm5mDb7NkKgM8V/iUOzIIJVaYMkdxsUAfJoZ015FQI9M/nSvAuiEQ==\n-----END PUBLIC KEY-----\n", "g_to_x": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMO8tWaxT0wKCbXnTwMy8cvU4ZCUU\nhjmQ4W5Z/K4fUKqqEHv7wI6iKEN6TBq/7fyhMuMqGH1GB9omBl3yPW84xg==\n-----END PUBLIC KEY-----\n", "signature_pc": "MEYCIQCrVmlbRPPqCRCldSb89CXjzTEmszOtusXCeS11uazBIgIhAJIvCkBGLj3Ny46gTiXL206R\nvRj5S84Sp80QjyBCLj0n\n"}'
+    msg = '{"adr_pc": "testAdr", "pc_public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHCSLFSb1Ls7Pq1Z5jIPmyiA91WQm\nFdRyKMm5mDb7NkKgM8V/iUOzIIJVaYMkdxsUAfJoZ015FQI9M/nSvAuiEQ==\n-----END PUBLIC KEY-----\n", "g_to_x": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMO8tWaxT0wKCbXnTwMy8cvU4ZCUU\nhjmQ4W5Z/K4fUKqqEHv7wI6iKEN6TBq/7fyhMuMqGH1GB9omBl3yPW84xg==\n-----END PUBLIC KEY-----\n", "signature_pc": "MEYCIQCrVmlbRPPqCRCldSb89CXjzTEmszOtusXCeS11uazBIgIhAJIvCkBGLj3Ny46gTiXL206R\nvRj5S84Sp80QjyBCLj0n\n"}'
     monitor = UI.show_qr_screen_new_process(msg,test_callback)
     time.sleep(10)
     monitor.close()
