@@ -21,7 +21,7 @@ SERVICE_NAME="COMPENDIUM"
 #IDX_STORE="_INDEX"
 IDENTITY_KEY_PUBLIC="identity-public-key"
 IDENTITY_KEY_PRIVATE="identity-private-key"
-IDENTITY="identity-name"
+#IDENTITY="identity-name"
 PATH="data-path"
 JSON_FILENAME="public_ids.json"
 
@@ -332,7 +332,7 @@ class KeyRingIdentityStore(IdentityStore):
         
 
     def store(self,**kwargs):
-        keyring.set_password(self.SERVICE_NAME,IDENTITY,self.id)
+        #keyring.set_password(self.SERVICE_NAME,IDENTITY,self.id)
         keyring.set_password(self.SERVICE_NAME,IDENTITY_KEY_PRIVATE,self.get_private_key_encoded_str())
         keyring.set_password(self.SERVICE_NAME,IDENTITY_KEY_PUBLIC,self.get_public_key_encoded_str())
     
@@ -343,7 +343,7 @@ class KeyRingIdentityStore(IdentityStore):
         return self.public_id_store.get_key_names()
     
     def load(self,**kwargs):
-        self.id = self.id =keyring.get_password(self.SERVICE_NAME,IDENTITY)
+        #self.id = self.id =keyring.get_password(self.SERVICE_NAME,IDENTITY)
         if(keyring.get_password(self.SERVICE_NAME,IDENTITY_KEY_PRIVATE) is not None):
             self.load_private_key(keyring.get_password(self.SERVICE_NAME,IDENTITY_KEY_PRIVATE))
             

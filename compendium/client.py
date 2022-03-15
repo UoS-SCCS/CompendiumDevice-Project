@@ -148,6 +148,7 @@ class PC(WssClientListener):
         self.core_protocol = None
         self.core_protocol_data = None
         self.callback = None
+        self.qr_monitor = None
         
         
     def qr_callback(self,res):
@@ -170,7 +171,7 @@ class PC(WssClientListener):
             msg_one = self.current_protocol.prepare_outgoing_msg(self.current_protocol.get_next_message_class().create_msg_data(self.ephe_wss_addr_local))
             if self.mode == PC_MODE.ENROL:
                 #showQRCode
-                UI.show_qr_screen_new_process(msg_one.get_string(),self.qr_callback)
+                self.qr_monitor = UI.show_qr_screen_new_process(msg_one.get_string(),self.qr_callback)
                 #cd.receive_qr_code(msg_one.get_string())
                 pass
             elif self.mode == PC_MODE.WSS:
@@ -181,6 +182,10 @@ class PC(WssClientListener):
                 pass
         elif msg.get_type() is TYPE.DELIVER:
             logger.debug("Delivered:%s",msg)
+            if "Error" in msg:
+                print("ErrorMessage received:" + json.dumps(msg))
+                self._handle_error(ProtocolRemoteException(msg["Error"]["error-code"],msg["Error"]["error-message"]))
+                return
             try:
                 response = self.current_protocol.parse_incoming_msg(msg.get_field_value(DELIVER.MSG.value))
             except ProtocolRemoteException as error:
@@ -244,10 +249,12 @@ class PC(WssClientListener):
         confirm_message = self.current_protocol.prepare_outgoing_msg(ProtoMsgConfirmKeyMsg.create_msg_data(enc_msg))
         if self.mode == PC_MODE.ENROL:
             self.client.set_close_after_send()
+            if self.qr_monitor is not None:
+                self.qr_monitor.close()
         self.client.send(Message.create_route(self.current_protocol.ephe_address_remote,confirm_message.get_data()))
         if self.mode == PC_MODE.ENROL:
             if self.callback is not None:
-                (threading.Thread(target=self.callback,args=({"type":"enrol","CD_id":self.current_protocol.get_core_request()["id_cd"]},),daemon=True)).start()
+                (threading.Thread(target=self.callback,args=({"type":"enrol","CD_id":self.current_protocol.their_name},),daemon=True)).start()
             
 
     def _process_core_request(self):

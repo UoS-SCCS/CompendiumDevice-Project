@@ -2,6 +2,7 @@
 
 from enum import Enum
 import sys
+import ssl
 from abc import ABC, abstractmethod
 from concurrent.futures import thread
 import json
@@ -29,9 +30,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 streamHandler = logging.StreamHandler(sys.stdout)
 logger.addHandler(streamHandler)
-SERVER_ADDRESS="localhost"
+SERVER_ADDRESS="compendium.dev.castellate.com"
 SERVER_PORT=8001
-WSS_ADDRESS="ws://" + SERVER_ADDRESS + str(SERVER_PORT)
+WSS_ADDRESS="wss://" + SERVER_ADDRESS + ":" + str(SERVER_PORT)
 
 class WssClient():
     def __init__(self,wss_address:str=None) -> None:
@@ -187,8 +188,12 @@ class WssClient():
      
 
     def connect(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((SERVER_ADDRESS, SERVER_PORT))
+        #self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        context = ssl.create_default_context()
+        self.sock = socket.create_connection((SERVER_ADDRESS, SERVER_PORT))
+        self.sock = context.wrap_socket(self.sock, server_hostname=SERVER_ADDRESS)
+
+        #self.sock.connect((SERVER_ADDRESS, SERVER_PORT))
         wsuri = websockets.uri.parse_uri(self.wss_adr)
         self.connection = ClientConnection(wsuri)
         request = self.connection.connect()

@@ -1,5 +1,6 @@
 import json
 from compendium.client import Compendium
+from compendium.storage import KeyRingIdentityStore
 from compendium.utils import B64
 nonce = None
 app_pk = None
@@ -43,8 +44,12 @@ def select_device():
     for name in compendium.get_enrolled_devices():
         message += "\t" + str(counter) + " " + name + "\n"
         counter += 1
+    message += "\n\te Enrol New\n\n>"
     device_idx = input(message)
-    return compendium.get_enrolled_devices()[int(device_idx)]
+    if device_idx == "e":
+        compendium.enrol_new_device(mycallback)
+    else:
+        return compendium.get_enrolled_devices()[int(device_idx)]
 
 def choose_option():
     message = "Select operation:\n\n"
@@ -52,7 +57,10 @@ def choose_option():
     message += "\t2 Perform Verification\n"
     message += "\t3 Perform Put\n"
     message += "\t4 Perform Get\n"
-    option = int(input(message))
+    user_input = input(message)
+    while user_input=="":
+        user_input = input(message)
+    option = int(user_input)
     compendium.reset()
     if option == 1:
         compendium.register_user_verification(target_device,"TestSignatureApp","Testing the protocol", mycallback)
