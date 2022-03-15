@@ -6,8 +6,8 @@ from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey,
 from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding, PrivateFormat, NoEncryption
 from cryptography.hazmat.primitives import serialization 
 from cryptography.hazmat.primitives import hashes
-from companion.ui import UI
-from companion.utils import CryptoUtils
+from compendium.ui import UI
+from compendium.utils import CryptoUtils
 from multiprocessing import Process, Queue
 import socket
 import uuid

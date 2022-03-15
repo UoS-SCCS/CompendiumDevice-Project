@@ -1,30 +1,42 @@
 
 
 from cgi import test
-from wss.client import WssClientListener, WssClient, Message, TYPE, INITRESP
-from companion.identity import KeyRingIdentityStore
-from companion.protocol import EnrolmentProtocol, ProtoMsgConfirmKeyEncMsg, ProtoMsgConfirmKeyMsg,\
+from subprocess import call
+from tkinter.messagebox import NO
+from compendium.wss.client import WssClientListener, WssClient, Message, TYPE, INITRESP
+from compendium.storage import KeyRingIdentityStore, IdentityStore
+from compendium.protocol import EnrolmentProtocol, ProtoMsgConfirmKeyEncMsg, ProtoMsgConfirmKeyMsg,\
     ProtoMsgInitKeyReq,ProtoMsgInitKeyResp, ProtoMsgInitKeyRespEncMsg, ProtoWSSInitKeyReqMsg,\
     ProtoWSSInitKeyRespEncMsg, ProtocolRemoteException, WSSKeyExchangeProtocol, WSS_KEP_STATE, ProtoMsgCoreEncMsg, ProtoMsgCoreRespMsg, ProtoMsgCoreMsg,\
     PROTO_CORE_GET_REQ,PROTO_CORE_PUT_REQ,PROTO_CORE_REG_REQ,PROTO_CORE_VERIFY_REQ,\
     PROTO_CORE_GET_RES,PROTO_CORE_PUT_RES,PROTO_CORE_REG_RES,PROTO_CORE_VERIFY_RES
+import os
+
+from compendium.utils import CryptoUtils, B64
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey,EllipticCurvePrivateKey
+from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding, PrivateFormat, NoEncryption
+from cryptography.hazmat.primitives import serialization 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import requests
 import sys
 import logging
 import threading
-from typing import Union
+from cryptography.exceptions import InvalidSignature
+from typing import List, Union
 from enum import Enum
-from companion.ui import UI
+from compendium.ui import UI
 import json
 import time
-from wss.message import DELIVER
+from compendium.wss.message import DELIVER
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 streamHandler = logging.StreamHandler(sys.stdout)
 logger.addHandler(streamHandler)
 
-PUSH_SERVER_ADDRESS="http://localhost"
-PUSH_SERVER_PORT=5000
+PUSH_SERVER_ADDRESS="https://compendium.dev.castellate.com"
+PUSH_SERVER_PORT=4500
 PUSH_PATH = "/pushmessage"
 class CD_MODE(Enum):
     IDLE=0
@@ -118,26 +130,25 @@ class Companion(WssClientListener):
             self.client.add_listener(self)
             self.client.send(Message.create_init())
 
+class CompendiumException(Exception):
+    pass
+
 class PC_MODE(Enum):
     IDLE=0
     ENROL = 1
     WSS = 2
 class PC(WssClientListener):
-    
-    #TODO
-    # Generate QRCode
-    # Display QRCode
-    # Enrolment storage
-    # Protocol
-    def __init__(self):
-        self.identity_store = KeyRingIdentityStore()
+
+    def __init__(self, identity_store:IdentityStore=KeyRingIdentityStore()):
+        self.identity_store = identity_store
         self.ephe_wss_addr_local = None
-        self.client = None# WssClient()
+        self.client = None
         self.current_protocol = None
         self.mode = PC_MODE.IDLE
         self.core_protocol = None
         self.core_protocol_data = None
         self.callback = None
+        
         
     def qr_callback(self,res):
         print("qrcallback:" + res)    
@@ -182,7 +193,7 @@ class PC(WssClientListener):
                     print(response)
                     if self.current_protocol.current_state == WSS_KEP_STATE.INIT_KEY_RESP:
                         self._process_key_response()
-                        time.sleep(0.5)
+                        time.sleep(0.5)#TODO improve this, we add a delay to reduce the chance of message ordering problems
                         self._process_core_request()
                     elif self.current_protocol.current_state == WSS_KEP_STATE.CORE_REQ:
                         print("Received Response")
@@ -205,7 +216,8 @@ class PC(WssClientListener):
             logger.debug("Received:%s",msg)
 
     def reset(self):
-        self.client.close()
+        if self.client is not None:
+            self.client.close()
         self.ephe_wss_addr_local = None
         self.client = None# WssClient()
         self.current_protocol = None
@@ -230,7 +242,13 @@ class PC(WssClientListener):
         #Create encrypted message wrapper
         enc_msg = ProtoMsgConfirmKeyMsg.create_encrypted_json_msg(encrypted_confirm_signature.get_data(),self.current_protocol.derived_key)
         confirm_message = self.current_protocol.prepare_outgoing_msg(ProtoMsgConfirmKeyMsg.create_msg_data(enc_msg))
+        if self.mode == PC_MODE.ENROL:
+            self.client.set_close_after_send()
         self.client.send(Message.create_route(self.current_protocol.ephe_address_remote,confirm_message.get_data()))
+        if self.mode == PC_MODE.ENROL:
+            if self.callback is not None:
+                (threading.Thread(target=self.callback,args=({"type":"enrol","CD_id":self.current_protocol.get_core_request()["id_cd"]},),daemon=True)).start()
+            
 
     def _process_core_request(self):
         #ProtoMsgCoreEncMsg, ProtoMsgCoreRespMsg, ProtoMsgCoreMsg
@@ -243,8 +261,11 @@ class PC(WssClientListener):
         self.client.send(Message.create_route(self.current_protocol.ephe_address_remote,confirm_message.get_data()))
 
 
-    def start_enrolment(self):
+    def start_enrolment(self,callback):
+        if self.mode is not PC_MODE.IDLE:
+            raise CompendiumException("Cannot run two protocols at once")
         self.client = WssClient()
+        self.callback = callback
         self.current_protocol = EnrolmentProtocol(self.identity_store)
         self.mode = PC_MODE.ENROL
         self.client.connect()
@@ -252,6 +273,8 @@ class PC(WssClientListener):
         self.client.send(Message.create_init())
     
     def start_wss(self, key_id:str, core_protocol:Union[PROTO_CORE_GET_REQ,PROTO_CORE_PUT_REQ,PROTO_CORE_REG_REQ,PROTO_CORE_VERIFY_REQ], core_protocol_data,callback):
+        if self.mode is not PC_MODE.IDLE:
+            raise CompendiumException("Cannot run two protocols at once")
         self.client = WssClient()
         self.callback = callback
         self.core_protocol=core_protocol
@@ -281,15 +304,7 @@ class PC(WssClientListener):
         web_address = web_address + PUSH_PATH
         callback(requests.post(web_address,json=msg, timeout=30))
         
-import os
 
-from companion.utils import CryptoUtils, B64
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey,EllipticCurvePrivateKey
-from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding, PrivateFormat, NoEncryption
-from cryptography.hazmat.primitives import serialization 
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 class DummyCryptoStore():
     DATA = "data"
     VERI = "verification"
@@ -354,141 +369,74 @@ class DummyCryptoStore():
         return B64.encode(data)
 
 
-
-test_nonce = None
-def verify_callback(data, error=None):
-    global test_nonce
-    global test_key
-    if error is not None:
-        print("Error occurred:", error.err_code, error.err_msg)
-        return
-    #test_key="MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE6b3XnLn1d4nsO7eJgAyuPxK47wrQfWlMu4H0dGvtmu3g0z5TQgU692T4ANU2feGWGejDr1D1FQUClUQYXtY3TQ=="
-    print(test_nonce)
-    print("Verify Callback")
-    public_key = CryptoUtils.load_public_key_from_string(test_key)
-    print(public_key.verify(B64.decode(data[PROTO_CORE_VERIFY_RES.APP_SIG.value]), test_nonce, ec.ECDSA(hashes.SHA256())))
-    print("Key Verified")
-    print("callback",data)
-
-test_key = None
-def reg_callback(data, error=None):
-    global test_key
-    test_key = data[PROTO_CORE_REG_RES.APP_PK.value]
-    print(test_key)
-    global pc
-    print("Starting Reset")
-    pc.reset()
-    print("Finished Reset")
-    pc = PC()
-    test_verify(pc)
-
-enc_data = None
-def put_callback(data, error=None):
-    global enc_data
-    enc_data = data[PROTO_CORE_PUT_RES.ENC_DATA.value]
-    print("PUT callback")
-    print(enc_data)
-    global cd
-    global pc
-    cd = Companion()
-    pc = PC()
-    test_get(pc)
-
-def get_callback(data, error=None):
-    data = B64.decode(data[PROTO_CORE_GET_RES.DATA.value]).decode("UTF-8")
-    print(data)
-
-def test_reg(pc):
-    key = pc.get_key_id_from_name("Android SDK built for x86")
-    data = {}
-    data[PROTO_CORE_REG_REQ.APP_ID.value]="NewTestApp"
-    data[PROTO_CORE_REG_REQ.DESC.value]="Let's go"
-    data[PROTO_CORE_REG_REQ.ID_CD.value]=key
-    pc.start_wss(key,PROTO_CORE_REG_REQ,data,reg_callback)
-
-def test_verify(pc):
-    key = pc.get_key_id_from_name("Android SDK built for x86")
-    data = {}
-    global test_nonce
-    test_nonce=os.urandom(12)
-    print(test_nonce)
-    data[PROTO_CORE_REG_REQ.APP_ID.value]="NewTestApp"
-    data[PROTO_CORE_VERIFY_REQ.DESC.value]="Let's go"
-    data[PROTO_CORE_VERIFY_REQ.ID_CD.value]=key
-    data[PROTO_CORE_VERIFY_REQ.CODE.value]="1234"
-    data[PROTO_CORE_VERIFY_REQ.NONCE.value]=B64.encode(test_nonce)
-    print("about to call verify")
-    pc.start_wss(key,PROTO_CORE_VERIFY_REQ,data,verify_callback)
-
-def test_put(pc):
-    key = pc.get_key_id_from_name("Android SDK built for x86")
-    data = {}
+class Compendium():
+    def __init__(self, identity_store:IdentityStore=None):
+        self.pc = None
+        if identity_store is not None:
+            self.pc = PC(identity_store)
+        else:
+            self.pc = PC()
+        assert(self.pc is not None)
     
-    data[PROTO_CORE_PUT_REQ.APP_ID.value]="MyApp"
-    data[PROTO_CORE_PUT_REQ.DESC.value]="Let's go"
-    data[PROTO_CORE_PUT_REQ.ID_CD.value]=key
-    data[PROTO_CORE_PUT_REQ.CODE.value]="1234"
-    data[PROTO_CORE_PUT_REQ.DATA.value]=B64.encode("Hello mr brightside".encode("UTF-8"))
-    pc.start_wss(key,PROTO_CORE_PUT_REQ,data,put_callback)
+    def reset(self):
+        self.pc.reset()
+    def get_enrolled_devices(self):
+        return [*self.pc.get_key_names()]
 
-def test_get(pc):
-    global enc_data
-    key = pc.get_key_id_from_name("Android SDK built for x86")
-    data = {}
-    #This must be set as a string not JSON to ensure the signature verifies
-    enc_data = {"cipher_text":"piCiqNxUabPw8MdvRLoCimYEzf3yb2SBSe2kuOCDZqjSzeg=","iv":"n+NYaNj769D60\/Qh"}
-    data[PROTO_CORE_GET_REQ.APP_ID.value]="MyApp"
-    data[PROTO_CORE_GET_REQ.DESC.value]="Let's go"
-    data[PROTO_CORE_GET_REQ.ID_CD.value]=key
-    data[PROTO_CORE_GET_REQ.CODE.value]="1234"
-    data[PROTO_CORE_GET_REQ.ENC_DATA.value]=json.dumps(enc_data)
-    pc.start_wss(key,PROTO_CORE_GET_REQ,data,get_callback)
-pc = None
-cd = None
-if __name__ == "__main__":
+    def enrol_new_device(self, callback):
+        self.pc.start_enrolment(callback)
 
-    pc = PC()
-    cd = Companion()
-    
-    #print(pc.get_key_ids())
-    #print(pc.get_key_names())
-    #pc.start_enrolment()
-    key = pc.get_key_id_from_name("CD")
-    #pc.start_enrolment()
-    test_reg(pc)
-    #test_verify(pc)
-    input("Press Enter to continue...")
-    #pc
-    #print(key)
-    #data = {}
-    #data[PROTO_CORE_REG_REQ.APP_ID.value]="MyApp"
-    #data[PROTO_CORE_REG_REQ.DESC.value]="Let's go"
-    #data[PROTO_CORE_REG_REQ.ID_CD.value]="CD"
-    #pc.start_wss(key,PROTO_CORE_REG_REQ,data,callback)
-    
+    def register_user_verification(self, companion_name:str, app_id:str, description:str,callback):
+        #TODO handle name clashes
+        key = self.pc.get_key_id_from_name(companion_name)
+        data = {}
+        data[PROTO_CORE_REG_REQ.APP_ID.value]=app_id
+        data[PROTO_CORE_REG_REQ.DESC.value]=description
+        data[PROTO_CORE_REG_REQ.ID_CD.value]=key
+        self.pc.start_wss(key,PROTO_CORE_REG_REQ,data,callback)
 
-    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEH/24HoN/UoXqpAzbPc1616CIP/SPFc07jXmIGM9Dhnu40mAkpxeG3E5SWG6PQWPFBdLyNELp+n1T74W5Ov/MKw=="
+    def perform_user_verification(self, companion_name:str, app_id:str, description:str, code:str, callback, nonce:bytes=None)->bytes:
+        #TODO handle name clashes
+        key = self.pc.get_key_id_from_name(companion_name)
+        data = {}
+        if nonce is None:
+            nonce=os.urandom(12)
+        data[PROTO_CORE_REG_REQ.APP_ID.value]=app_id
+        data[PROTO_CORE_VERIFY_REQ.DESC.value]=description
+        data[PROTO_CORE_VERIFY_REQ.ID_CD.value]=key
+        data[PROTO_CORE_VERIFY_REQ.CODE.value]=code
+        data[PROTO_CORE_VERIFY_REQ.NONCE.value]=B64.encode(nonce)
+        self.pc.start_wss(key,PROTO_CORE_VERIFY_REQ,data,callback)
+        return nonce
     
-    #data = {}
-    #test_nonce=os.urandom(12)
-    #data[PROTO_CORE_REG_REQ.APP_ID.value]="MyApp"
-    #data[PROTO_CORE_VERIFY_REQ.DESC.value]="Let's go"
-    #data[PROTO_CORE_VERIFY_REQ.ID_CD.value]="CD"
-    #data[PROTO_CORE_VERIFY_REQ.CODE.value]="1234"
-    #data[PROTO_CORE_VERIFY_REQ.NONCE.value]=B64.encode(test_nonce)
-    
-    #pc.start_wss(key,PROTO_CORE_VERIFY_REQ,data,verify_callback)
+    def put_data(self,data_to_send:bytes, companion_name:str, app_id:str, description:str, code:str, callback):
+        key = self.pc.get_key_id_from_name(companion_name)
+        data = {}    
+        data[PROTO_CORE_PUT_REQ.APP_ID.value]=app_id
+        data[PROTO_CORE_PUT_REQ.DESC.value]=description
+        data[PROTO_CORE_PUT_REQ.ID_CD.value]=key
+        data[PROTO_CORE_PUT_REQ.CODE.value]=code
+        data[PROTO_CORE_PUT_REQ.DATA.value]=B64.encode(data_to_send)
+        self.pc.start_wss(key,PROTO_CORE_PUT_REQ,data,callback)
 
-    #data[PROTO_CORE_REG_REQ.APP_ID.value]="MyApp"
-    #data[PROTO_CORE_REG_REQ.DESC.value]="Let's go"
-    #data[PROTO_CORE_REG_REQ.ID_CD.value]="CD"
-    #pc.start_wss(key,PROTO_CORE_REG_REQ,data,callback)
+    def get_data(self,encrypted_data:dict, companion_name:str, app_id:str, description:str, code:str, callback):
+        key = self.pc.get_key_id_from_name(companion_name)
+        data = {}
+        #This must be set as a string not JSON to ensure the signature verifies
+        #enc_data = {"cipher_text":"piCiqNxUabPw8MdvRLoCimYEzf3yb2SBSe2kuOCDZqjSzeg=","iv":"n+NYaNj769D60\/Qh"}
+        data[PROTO_CORE_GET_REQ.APP_ID.value]=app_id
+        data[PROTO_CORE_GET_REQ.DESC.value]=description
+        data[PROTO_CORE_GET_REQ.ID_CD.value]=key
+        data[PROTO_CORE_GET_REQ.CODE.value]=code
+        data[PROTO_CORE_GET_REQ.ENC_DATA.value]=json.dumps(encrypted_data)
+        self.pc.start_wss(key,PROTO_CORE_GET_REQ,data,callback)
     
-    #test_enrolment()
-    #test_wss()
-    
-    
-    #print(kep.parse_next_msg())
-    if(True):
-        exit()
-
+    @staticmethod
+    def verify_signature(signature: str, data:bytes, key:str)->bool:
+        public_key = CryptoUtils.load_public_key_from_string(key)
+        try:
+            public_key.verify(B64.decode(signature),data, ec.ECDSA(hashes.SHA256()))
+            return True
+        except InvalidSignature:
+            return False
+ 

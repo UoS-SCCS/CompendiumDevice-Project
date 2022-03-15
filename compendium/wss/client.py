@@ -15,8 +15,8 @@ from websockets.frames import Frame,Opcode
 import threading
 from abc import ABC, abstractmethod, abstractproperty, abstractstaticmethod
 import logging
-from companion.identity import KeyRingIdentityStore
-from wss.message import Message,TYPE,INITRESP
+from compendium.storage import KeyRingIdentityStore
+from compendium.wss.message import Message,TYPE,INITRESP
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey,EllipticCurvePrivateKey
 from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding, PrivateFormat, NoEncryption
@@ -51,6 +51,7 @@ class WssClient():
         self.send_queue_thread = None
         self.connected=False
         self.shutdown_called=False
+        self.close_after_send=False
 
     def add_listener(self,listener):
         self._listeners.append(listener)
@@ -66,6 +67,9 @@ class WssClient():
     def send(self,msg:Message):
         self.send_queue.put(msg)
 
+    def set_close_after_send(self):
+        self.close_after_send = True
+
     def process_send_queue(self):
         while True:
             logger.debug("Waiting for message to send")
@@ -75,6 +79,8 @@ class WssClient():
             self.connection.send_text(msg.encode_as_bytes())
             logger.debug("Sent message %s",msg)
             self._send_data()
+            if self.close_after_send:
+                self.close()
 
     def close(self):
         print("close called")
@@ -178,6 +184,7 @@ class WssClient():
                 if not self.shutdown_called:
                     self.sock.shutdown(socket.SHUT_WR)
                     self.shutdown_called=True
+     
 
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -201,26 +208,3 @@ class WssClientListener(ABC):
     def ws_received(self,msg:Message):
         pass
 
-if __name__ == "__main__":
-
-    #pc = PC()
-    #if(True):
-    #    exit()
-    companion_one = Companion()
-    companion_two = Companion()
-    sleep(5)
-    companion_one.establish_secure_connection(companion_two.ephe_wss_addr_local)
-
-
-
-
-
-
-"""async def main():
-    async with websockets.connect("ws://localhost:8001/init") as websocket:
-        await websocket.send(Message.create_init().encode())
-        message = Message.parse(await websocket.recv())
-        await websocket.send(Message.create_route(message.EpheWssAddr,{"data":"hello world!"}).encode())
-
-        print(message)
-        """

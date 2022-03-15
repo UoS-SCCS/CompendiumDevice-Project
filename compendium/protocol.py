@@ -22,8 +22,8 @@ from typing import List, Union
 import json
 import sys
 import logging
-from companion.utils import CryptoUtils, B64
-from companion.identity import IdentityStore, KeyRingIdentityStore
+from compendium.utils import CryptoUtils, B64
+from compendium.storage import IdentityStore, KeyRingIdentityStore
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 streamHandler = logging.StreamHandler(sys.stdout)
