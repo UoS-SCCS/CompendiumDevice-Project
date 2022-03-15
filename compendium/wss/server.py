@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-
+import os
 import asyncio
 import uuid
+import ssl
 import websockets
 import json
 from message import Message,TYPE
@@ -30,9 +31,19 @@ async def handler(websocket):
             del CONNSIDX[websocket]
             break
 
+SSLPATHCERT="/etc/letsencrypt/live/compendium.dev.castellate.com/fullchain.pem"
+SSLKEY="/etc/letsencrypt/live/compendium.dev.castellate.com/privkey.pem"
+
 async def main():
-    async with websockets.serve(handler, "", 8001):
-        await asyncio.Future()  # run forever
+    
+    if os.path.exists(SSLPATHCERT):
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(SSLPATHCERT, keyfile=SSLKEY)    
+        async with websockets.serve(handler, "", 8001, ssl=ssl_context):
+            await asyncio.Future()  # run forever
+    else:
+        async with websockets.serve(handler, "", 8001):
+            await asyncio.Future()  # run forever
 
 
 if __name__ == "__main__":
