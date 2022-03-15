@@ -37,6 +37,7 @@ SSLKEY="/etc/letsencrypt/live/compendium.dev.castellate.com/privkey.pem"
 async def main():
     
     if os.path.exists(SSLPATHCERT):
+        print("Using SSL")
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(SSLPATHCERT, keyfile=SSLKEY)    
         async with websockets.serve(handler, "", 8001, ssl=ssl_context):
