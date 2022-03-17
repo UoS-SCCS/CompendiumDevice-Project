@@ -9,11 +9,11 @@ def mycallback(response,error=None):
     global nonce
     global app_pk
     global encrypted_response
+    global target_device
     if error is not None:
         print(error)
         return
-    
-    print(response)
+
     if "type" in response:
         if response["type"] == "Reg":
             app_pk = response["app_pk"]
@@ -26,7 +26,9 @@ def mycallback(response,error=None):
         elif response["type"]=="Get":
             plaintext = B64.decode(response["data"]).decode("UTF-8")
             print("Received Plaintext:" + plaintext)
-
+        elif response["type"]=="enrol":
+            target_device = response["CD_id"]
+            print("Enrolled:" + target_device)
 
 compendium = Compendium()
 
