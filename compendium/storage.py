@@ -1,31 +1,65 @@
+"""
+ © Copyright 2021-2022 University of Surrey
+
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+
+ 1. Redistributions of source code must retain the above copyright notice,
+ this list of conditions and the following disclaimer.
+
+ 2. Redistributions in binary form must reproduce the above copyright notice,
+ this list of conditions and the following disclaimer in the documentation
+ and/or other materials provided with the distribution.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+
+"""
 #!/usr/bin/env python
-from abc import ABC, abstractmethod, abstractproperty, abstractstaticmethod
-from site import ENABLE_USER_SITE
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey,EllipticCurvePrivateKey
-from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding, PrivateFormat, NoEncryption
-from cryptography.hazmat.primitives import serialization 
-from cryptography.hazmat.primitives import hashes
-from compendium.ui import UI
-from compendium.utils import CryptoUtils
-from multiprocessing import Process, Queue
+import json
+import os
 import socket
 import uuid
-import os
-import keyring
-import json
+from abc import ABC, abstractmethod, abstractproperty, abstractstaticmethod
+from multiprocessing import Process, Queue
+from site import ENABLE_USER_SITE
 from typing import List
 
+import keyring
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ec import (
+    EllipticCurvePrivateKey, EllipticCurvePublicKey)
+from cryptography.hazmat.primitives.serialization import (Encoding,
+                                                          NoEncryption,
+                                                          PrivateFormat,
+                                                          PublicFormat)
+
+from compendium.ui import UI
+from compendium.utils import CryptoUtils
+
+#Constants for key storage fields
 SERVICE_NAME="COMPENDIUM"
-#PUBLIC_KEY_STORE="_PUBKEYS"
-#IDX_STORE="_INDEX"
 IDENTITY_KEY_PUBLIC="identity-public-key"
 IDENTITY_KEY_PRIVATE="identity-private-key"
-#IDENTITY="identity-name"
 PATH="data-path"
 JSON_FILENAME="public_ids.json"
 
 class IdentityStore(ABC):
+    """Abstract class that defines functions for implementations that
+    provide IdentityStore functionality - in other words that provide
+    storage of the public/private identity key associated with this
+    device or requester.
+    """
     def __init__(self):
         self.private_key = None
         self.public_key = None
@@ -33,44 +67,139 @@ class IdentityStore(ABC):
         self.load()
 
     def get_private_key(self)->EllipticCurvePrivateKey:
+        """Get the private identity key
+
+        Returns:
+            EllipticCurvePrivateKey: private identity key
+        """
         return self.private_key
     
     def get_public_key(self)->EllipticCurvePublicKey:
+        """Get the public identity key
+
+        Returns:
+            EllipticCurvePublicKey: public identity key
+        """
         return self.public_key
 
     def get_public_key_id(self)->str:
-        return CryptoUtils.get_public_key_identifier(self.public_key)
-        #IdentityStore.calculate_public_key_identifier(self.public_key)
+        """Get the public key id string, which is SHA256 hash of 
+        the DER representation of the key
+
+        Returns:
+            str: Base64 encoded DER of the public key
+        """
+        return CryptoUtils.get_public_key_identifier(self.public_key)        
 
     @abstractmethod
     def get_id(self)->str:
+        """Get the ID of this device
+        
+        This is deprecated and shouldn't be used. We no longer
+        set an ID on the PC so there is no reason to store or
+        retrieve this value
+
+        Returns:
+            str: identity 
+        """
         pass
     
     @abstractmethod
     def get_public_identity_from_name(self, name:str)->EllipticCurvePublicKey:
+        """Get the public identity key from the device name
+
+        Args:
+            name (str): device name
+
+        Returns:
+            EllipticCurvePublicKey: device public key
+        """
         pass
 
     @abstractmethod        
     def get_public_identity_from_key_id(self, key_id:str)->EllipticCurvePublicKey:
+        """Gets a Public Identity Key from the Key ID, whereby the key_id is 
+        a Base64 encoding of the a SHA256 hash of the DER public key bytes
+
+        Args:
+            key_id (str): Base64 encoded Public Key ID string
+
+        Returns:
+            EllipticCurvePublicKey: Public Key
+        """
         pass
 
     @abstractmethod
     def get_public_key_id_from_name(self, name:str)->str:
+        """Gets a public key id from the name provided by the 
+        Companion Device during enrolment. Note, names are not
+        guaranteed to be unique. It is the responsibility of the
+        implementer to determine how to handle duplicates.
+
+        This should return the Public Key ID, if necessary loading
+        the key and performing the SHA256 hash and Base64 encoding
+        to generate the ID.
+
+        Args:
+            name (str): name of the device
+
+        Returns:
+            str: Base64 encoding of the Public Key ID
+        """
         pass 
     @abstractmethod    
     def get_public_identity_str_from_name(self, name:str)->str:
+        """Gets the public key as a Base64 string from the
+        device name provided
+
+        Args:
+            name (str): device name
+
+        Returns:
+            str: Base64 encoded Public Key
+        """
         pass
             
     @abstractmethod
     def get_public_identity_str_from_key_id(self, key_id:str)->str:
+        """Gets the public key as a Base64 string from the
+        key ID provided
+
+        Args:
+            key_id (str): Base64 encoding of the SHA256 of the public key bytes
+
+        Returns:
+            str: Base64 encoded Public Key
+        """
         pass
 
     @abstractmethod
     def set_public_identity(self, name:str, key:str)->str:
+        """Stores a received public identity with the specified name. The
+        behaviour for duplicate names is not defined and lef to the
+        implementer to decided whether to accept or reject.
+
+        This method should generate the Public Key ID from the key
+        string and store that as well.
+
+        Args:
+            name (str): name of the device
+            key (str): Base64 encoded public key
+        """
         pass
     
     @staticmethod
     def calculate_public_key_identifier(key)->str:
+        """Utility function to calculate a Public Key ID from a
+        key. Calculates the SHA256 hash of the key, encodes it
+        with Base64 and returns that string.
+
+        Args:
+            key (str or EllipticCurvePublicKey): key to generate Public Key ID from
+
+        Returns:
+            str: Base64 encoded SHA256 hash of DER public key bytes
+        """
         if not isinstance(key,EllipticCurvePublicKey):
             temp_key = CryptoUtils.load_public_key_from_string(key)
         else:
@@ -82,6 +211,15 @@ class IdentityStore(ABC):
         return hasher.finalize().hex()
 
     def get_identity_name(self)->str:
+        """Deprecated
+        Previously used to obtain a PC device name
+
+        Will be removed
+        TODO REMOVE
+
+        Returns:
+            str: _description_
+        """
         q = Queue()
         p = Process(target=UI.get_user_input, args=(q,))
         p.start()
@@ -90,37 +228,69 @@ class IdentityStore(ABC):
         return id
             
     def _generate_identity_key(self):
+        """Generates an identity key for the PC and stores them
+        """
         print("Generating new keys")
         self.private_key = ec.generate_private_key(ec.SECP256R1)
         self.public_key = self.private_key.public_key()
         self.store()
         
-    def get_public_key_encoded_str(self):
+    def get_public_key_encoded_str(self)->str:
+        """Gets the public identity key as a Base64 encoded string
+
+        Returns:
+            str: Base64 encoded string of DER encoded Public Key bytes
+        """
         return CryptoUtils.public_key_to_string(self.public_key)
         
 
-    def get_private_key_encoded_str(self):
+    def get_private_key_encoded_str(self)->str:
+        """Gets the private key as encoded string to facilitate storage
+        of the key. Currently uses a PEM encoded private key format with
+        no encryption.
+        
+        Returns:
+            str: String encoding of the private key
+        """
         return self.private_key.private_bytes(Encoding.PEM,PrivateFormat.PKCS8, NoEncryption()).decode("UTF-8")
     
     def load_public_key(self, encoded_public_key:str):
+        """Loads the identity public key for this PC from an encoded string
+
+        Args:
+            encoded_public_key (str): Base64 encoded Public Key
+        """
         self.public_key = CryptoUtils.load_public_key_from_string(encoded_public_key)
     
     def load_private_key(self, pem_encoded_private_key:str):
+        """Loads the identity private key for this PC from an encoded string
+
+        Args:
+            pem_encoded_private_key (str): PEM encoded private key
+        """
         self.private_key = serialization.load_pem_private_key(pem_encoded_private_key.encode("UTF-8"),None)
     @abstractmethod
     def load(self,**kwargs):
+        """Loads the underlying store
+        """
         pass
 
     @abstractmethod
     def store(self,**kwargs):
+        """Store the data to disk
+        """
         pass
     
     @abstractmethod
     def get_key_ids(self):
+        """Get the key IDs contained in the store
+        """
         pass
 
     @abstractmethod
     def get_key_names(self):
+        """Get the key names contained in the store
+        """
         pass
 
 class StorageException(Exception):
@@ -129,46 +299,112 @@ class PublicIdentityStore(ABC):
 
     @abstractmethod
     def save(self):
+        """Save the data to disk
+        """
         pass
     
     @abstractmethod
     def load(self):
+        """Load the data from disk
+        """
         pass
     
     @abstractmethod
     def get_public_identity_str_from_name(self, name:str)->str:
+        """Gets the public key as a Base64 string from the
+        device name provided
+
+        Args:
+            name (str): device name
+
+        Returns:
+            str: Base64 encoded Public Key
+        """
         pass
         
     @abstractmethod
     def get_public_identity_str_from_key_id(self, key_id:str)->str:
+        """Gets the public key as a Base64 string from the
+        key ID provided
+
+        Args:
+            key_id (str): Base64 encoding of the SHA256 of the public key bytes
+
+        Returns:
+            str: Base64 encoded Public Key
+        """
         pass
 
     @abstractmethod
     def get_public_key_id_from_name(self, name:str)->str:
+        """Gets a public key id from the name provided by the 
+        Companion Device during enrolment. Note, names are not
+        guaranteed to be unique. It is the responsibility of the
+        implementer to determine how to handle duplicates.
+
+        This should return the Public Key ID, if necessary loading
+        the key and performing the SHA256 hash and Base64 encoding
+        to generate the ID.
+
+        Args:
+            name (str): name of the device
+
+        Returns:
+            str: Base64 encoding of the Public Key ID
+        """
         pass
 
     @abstractmethod
     def set_public_identity(self, name:str, key:str)->str:
+        """Stores a received public identity with the specified name. The
+        behaviour for duplicate names is not defined and lef to the
+        implementer to decided whether to accept or reject.
+
+        This method should generate the Public Key ID from the key
+        string and store that as well.
+
+        Args:
+            name (str): name of the device
+            key (str): Base64 encoded public key
+        """
         pass
     
     @abstractmethod
     def get_key_ids(self)->List[str]:
+        """Get the key IDs contained in the store
+        """
         pass
 
     @abstractmethod
     def get_key_names(self)->List[str]:
+        """Get the key names contained in the store
+        """
         pass
 
     @abstractmethod
     def get_id(self)->str:
+        """Deprecated
+        TODO delete
+        Returns:
+            str: _description_
+        """
         pass
     
     @abstractmethod
     def set_id(self, name:str):
+        """Deprecated
+        TODO delete
+
+        Args:
+            name (str): _description_
+        """
         pass
 
 
 class JSONPublicIdentityStore(PublicIdentityStore):
+    """Implementation of the PublicIdentityStore that uses an
+    underlying JSON file to read and store values
+    """
     NAMEIDX = "names"
     KEYS = "keys"
     NAME = "id"
@@ -191,6 +427,11 @@ class JSONPublicIdentityStore(PublicIdentityStore):
         self.load()
 
     def get_json(self):
+        """Gets the JSON representation directly
+
+        Returns:
+            dict: JSON dictionary
+        """
         return self.data
 
     def load(self):
@@ -216,6 +457,8 @@ class JSONPublicIdentityStore(PublicIdentityStore):
             self.save()
     
     def _create_path(self):
+        """Makes the directories and sets the path variable
+        """
         os.makedirs(self.path,exist_ok=True)
         self._fullpath = self.path + JSON_FILENAME
 
@@ -262,7 +505,7 @@ class JSONPublicIdentityStore(PublicIdentityStore):
         self.data[JSONPublicIdentityStore.NAME]=name
         self.save()
 
-        
+
 class KeyRingIdentityStore(IdentityStore):
     def __init__(self,public_identity_store:PublicIdentityStore=None,service_name:str=None):
         super().__init__()
@@ -276,7 +519,9 @@ class KeyRingIdentityStore(IdentityStore):
         return self.public_id_store.get_id()
 
     def _check_initialised(self):
-        
+        """Checks whether the key ring and JSONPublicIdentityStore are
+        initialised and if not initialises them
+        """
         if self.public_id_store is None:
             uid = keyring.get_password(self.SERVICE_NAME,PATH)
             if(uid is None):

@@ -33,16 +33,13 @@ For an example implementation see `demoapp.py` which contains a simple command l
 
 ### <a id="DataStorage"></a>Data Storage
 #### IdentityStore
-The identity store provides storage for the identity keys of the PC (the asymmetric key pair used to authenticate the PC both during Diffie-Hellman key exchanges and in the Compendium protocol). It is abstractly defined in the `IdentityStore` class.
+The identity store provides a storage interface for the identity keys of the PC (the asymmetric key pair used to authenticate the PC both during Diffie-Hellman key exchanges and in the Compendium protocol) and the public identity keys received from Companion Devices.  It is abstractly defined in the `IdentityStore` class. Importantly, it does not define how the underlying values should be stored. 
 
 #### PublicIdentityStore
-Provides storage for received public identity keys from enrolled Companion Devices. It is abstractly defined in the `PublicIdentityStore` class.
-
-#### CombinedIdentityStore
-Just combines the `IdentityStore` and the `PublicIdentityStore` into a single class. At some point we might separate these back out, but for now it is more useful to have them as one. 
+Provides a storage interface for received public identity keys from enrolled Companion Devices. It is abstractly defined in the `PublicIdentityStore` class. Separating this from the `IdentityStore` can be useful since these values are inherently public so don't need such careful storage.
 
 #### KeyRingIdentityStore
-Provides an implementation of the `CombinedIdentityStore`. The underlying implementation for `IdentityStore` stores key data to the system Key Ring. It also makes use of an internal `JSONPublicKeyIdentityStore` which is an implementation of the `PublicIdentityStore`. The `JSONPublicKeyIdentityStore` stores received public keys and their respective name and ID maps in a JSON file. In the case of the `KeyRingIdentityStore` that JSON file is stored in the users home directory `~/.compendium/data/PROFILE ID/public_ids_.json`, whereby `PROFILE_ID` is a GUID generated at random when first created and stored in the system key ring. All values in the system key ring are prefixed with "Compendium".
+Provides an implementation of the `IdentityStore`. Combines storage of private key data in the system key ring, whilst using a `JSONPublicKeyIdentityStore` which is an implementation of the `PublicIdentityStore` for storing public identities received from Companion Devices. The `JSONPublicKeyIdentityStore` stores received public keys and their respective name and ID maps in a JSON file. In the case of the `KeyRingIdentityStore` that JSON file is stored in the users home directory `~/.compendium/data/PROFILE ID/public_ids_.json`, whereby `PROFILE_ID` is a GUID generated at random when first created and stored in the system key ring. All values in the system key ring are prefixed with "Compendium".
 
 ## Protocol Implementation
 `protocol.py` contains the protocol implementation. The concept behind the implementation was to provide as flexible a core protocol handler as possible, with as much code generalised into inherited classes. As such, a series of ProtocolMessage classes are implemented to represent different types and functionality of messages, for example, whether a message is signed or encrypted. They then contain the necessary methods for processing such a message either as an incoming or outgoing message. 
