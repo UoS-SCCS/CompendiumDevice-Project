@@ -100,11 +100,29 @@ The two most important functions that the concrete protocols should implement is
 
 There is reasonably extension processing in these two methods to handle different message types as they are received. Some of this functionality could be further generalised and the overall structure improved in future implementations. The Android App, albeit written in a different language, already exhibits the next iteration of the concept and provides a cleaner approach.
 
+## Building the Library
+Run the following to build the wheel
+```bash
+python3 setup.py bdist_wheel --universal
+```
+Note, this approach to building should be updated to use new tools like pip, but is sufficient for our current development builds. To change the version numbering modify setup.py
 
+```python
+from setuptools import setup
 
+setup(
+    name='Compendium',
+    version='0.2',
+    packages=['.compendium', 'compendium.wss'],
+)
+```
+If requirements have changed create a new requirements.txt using:
 
-    
+```bash
+pip freeze > requirements.txt
+```
 
+The built wheel is in `./dist/`
    
 
    
