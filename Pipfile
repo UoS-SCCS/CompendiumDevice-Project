@@ -10,6 +10,8 @@ keyring = "*"
 secretstorage = "*"
 qrcode = {extras = ["pil"], version = "*"}
 requests = "*"
+wheel = "*"
+setuptools = "*"
 
 [dev-packages]
 autopep8 = "*"
