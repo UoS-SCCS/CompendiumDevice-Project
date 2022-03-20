@@ -63,7 +63,7 @@ from compendium.protocol import (PROTO_CORE_GET_REQ, PROTO_CORE_GET_RES,
                                  ProtoWSSInitKeyReqMsg,
                                  ProtoWSSInitKeyRespEncMsg,
                                  WSSKeyExchangeProtocol)
-from compendium.storage import (CombinedIdentityStore, IdentityStore,
+from compendium.storage import (IdentityStore,
                                 KeyRingIdentityStore)
 from compendium.ui import UI
 from compendium.utils import B64, CryptoUtils

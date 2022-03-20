@@ -6,7 +6,7 @@ Currently this repository also house the Web Socket Server for the project, alth
 A usage guide for the library is provided first, followed by breakdown of the various components of the library, the latter being of interest for further development.
 
 ## Usage
-The entry point for usage of the library is the Compendium class in `compendium.client`. The constructor for the Compendium class takes one optional argument `identity_store` of type CombinedIdentityStore. By default this will be the system wide `KeyRingIdentityStore` shared by all applications. If an application wishes to have sole control over the identity store, and therefore its own dedicated identity keys, it should provide an instance of its own CombinedIdentityStore implementation, see [Data Storage](#DataStorage) below.
+The entry point for usage of the library is the Compendium class in `compendium.client`. The constructor for the Compendium class takes one optional argument `identity_store` of type IdentityStore. By default this will be the system wide `KeyRingIdentityStore` shared by all applications. If an application wishes to have sole control over the identity store, and therefore its own dedicated identity keys, it should provide an instance of its own IdentityStore implementation, see [Data Storage](#DataStorage) below.
 
 This class provides the following functions:
 
