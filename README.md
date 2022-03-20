@@ -8,7 +8,8 @@ A usage guide for the library is provided first, followed by breakdown of the va
 ## Demo
 The following provides a short video showing Compendium in operation with our Virtual Authenticator. The video from the device is recorded on a Pixel 6 which hides the UI when performing a biometric authentication. To show what that UI looks like, please see below for an example that was recorded on an Android Emulator.
 
-<video style="width:50%;margin:0 auto" controls src="https://drive.google.com/uc?export=download&id=13gtnYTdZfh458GJdNpCdbiTxRcp1BrDm" type='video/mp4'></video>
+![Demo Video](https://drive.google.com/uc?export=download&id=13gtnYTdZfh458GJdNpCdbiTxRcp1BrDm)
+
 
 ### UI - Recorded on Android Emulator
 This following shows, enrolment followed by registration for User Verification, and a Verification challenge.
