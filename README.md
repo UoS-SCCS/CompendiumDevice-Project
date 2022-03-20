@@ -14,8 +14,8 @@ The following provides a short video showing Compendium in operation with our Vi
 ### UI - Recorded on Android Emulator
 This following shows, enrolment followed by registration for User Verification, and a Verification challenge.
 
-<video style="max-width:255px" controls src="https://drive.google.com/uc?export=download&id=1t2d4-ABW2KdKacAky7w1CQVWZaj760W5" type='video/webm'>
-</video>
+![UI Video](https://drive.google.com/uc?export=download&id=1t2d4-ABW2KdKacAky7w1CQVWZaj760W5&ext.mp4)
+
 
 
 ## Usage
