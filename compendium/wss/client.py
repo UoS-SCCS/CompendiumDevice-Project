@@ -198,13 +198,19 @@ class WssClient():
             logger.debug("Waiting for message to send")
 
             msg = self.send_queue.get()
-            
-            self.connection.send_text(msg.encode_as_bytes())
-            logger.debug("Sent message")
-            self._send_data()
-            if self.close_after_send:
-                logger.debug("Close after send set, will call close")
-                self.close()
+            if msg == "#CLOSE":
+                if self.connected:
+                    self.connected = False
+                    self.connection.send_close(1000)
+                    self._send_data()
+                    threading.Thread(target=self._close_socket(), daemon=True).start()
+            else:
+                self.connection.send_text(msg.encode_as_bytes())
+                logger.debug("Sent message")
+                self._send_data()
+                if self.close_after_send:
+                    logger.debug("Close after send set, will call close")
+                    self.close()
 
     def close(self):
         """Closes the underlying web socket client.
@@ -218,17 +224,8 @@ class WssClient():
         """ 
         logger.debug("Close called")
         if self.connected:
-            self.connected = False
-            msg = None
-            try:
-                while True:
-                    msg = self.send_queue.get(False)
-                    self.connection.send_text(msg.encode_as_bytes())
-            except Empty:
-                pass
-            self.connection.send_close(1000)
-            self._send_data()
-            threading.Thread(target=self._close_socket(), daemon=True).start()
+            self.send_queue.put("#CLOSE")
+            
 
     def _process_frame(self, frame: Frame):
         """Process a received web socket frame. Note, this has to handle
