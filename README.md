@@ -25,7 +25,7 @@ https://user-images.githubusercontent.com/19400530/167898809-b00ee2dd-c7ab-4374-
 
 
 
-[Demo Video Direct Link](https://drive.google.com/file/d/13gtnYTdZfh458GJdNpCdbiTxRcp1BrDm/preview)
+[Demo Video Direct Link](https://youtu.be/-c52wLQ_pIg)
 
 
 ### UI - Recorded on Android Emulator
@@ -33,7 +33,7 @@ This following shows, enrolment followed by registration for User Verification, 
 
 https://user-images.githubusercontent.com/19400530/167899814-c4115b76-9f3a-4309-9cb1-c92e56bd3cb2.mp4
 
-[UI Video Direct Link](https://drive.google.com/uc?export=download&id=1t2d4-ABW2KdKacAky7w1CQVWZaj760W5&ext.mp4)
+[UI Video Direct Link](https://youtu.be/cp48pj2cXMY)
 
 
 
